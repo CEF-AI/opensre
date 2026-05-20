@@ -95,7 +95,38 @@ def test_discover_agent_processes_filters_desktop_helper_noise(
     assert discovery.discover_agent_processes() == []
 
 
-def test_discover_agent_processes_all_mode_includes_filtered_helpers(
+def test_discover_agent_processes_all_mode_does_not_mislabel_desktop_as_claude_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(pid=201, command="/Applications/Claude.app/Contents/MacOS/Claude"),
+            ProcessRow(
+                pid=202,
+                command=(
+                    "/Applications/Claude.app/Contents/Frameworks/Electron "
+                    "Framework.framework/Helpers/chrome_crashpad_handler"
+                ),
+            ),
+            ProcessRow(
+                pid=203,
+                command=(
+                    "/Applications/Claude.app/Contents/Frameworks/Claude Helper "
+                    "(Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer"
+                ),
+            ),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes(include_all=True)
+
+    assert candidates == []
+
+
+def test_discover_agent_processes_all_mode_still_keeps_non_desktop_loose_matches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
@@ -104,10 +135,11 @@ def test_discover_agent_processes_all_mode_includes_filtered_helpers(
         "_current_process_rows",
         lambda: [
             ProcessRow(
-                pid=202,
+                pid=311,
                 command=(
-                    "/Applications/Claude.app/Contents/Frameworks/Electron "
-                    "Framework.framework/Helpers/chrome_crashpad_handler"
+                    "/Applications/Cursor.app/Contents/Frameworks/"
+                    "Cursor Helper (Plugin).app/Contents/MacOS/Cursor Helper (Plugin) "
+                    "--cursor-agent-launch"
                 ),
             ),
         ],
@@ -115,7 +147,266 @@ def test_discover_agent_processes_all_mode_includes_filtered_helpers(
 
     candidates = discovery.discover_agent_processes(include_all=True)
 
-    assert [(item.name, item.pid) for item in candidates] == [("claude-code-202", 202)]
+    assert [(item.name, item.pid) for item in candidates] == [("cursor-311", 311)]
+
+
+def test_discover_agent_processes_matches_bare_claude_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(pid=10, command="opensre"),
+            ProcessRow(pid=501, command="claude"),
+            ProcessRow(pid=502, command="/Users/me/.npm-global/bin/claude"),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [
+        ("claude-code-501", 501),
+        ("claude-code-502", 502),
+    ]
+
+
+def test_discover_agent_processes_matches_claude_cli_flag_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(pid=10, command="opensre"),
+            ProcessRow(pid=601, command="claude --resume abc-123"),
+            ProcessRow(pid=602, command="claude --prefill 'demo prompt'"),
+            ProcessRow(pid=603, command="claude --print 'one shot'"),
+            ProcessRow(pid=604, command="claude --continue"),
+            ProcessRow(pid=605, command="claude -p 'short flag print'"),
+            ProcessRow(pid=606, command="claude -c"),
+            ProcessRow(pid=607, command="claude -r abc-123"),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [
+        ("claude-code-601", 601),
+        ("claude-code-602", 602),
+        ("claude-code-603", 603),
+        ("claude-code-604", 604),
+        ("claude-code-605", 605),
+        ("claude-code-606", 606),
+        ("claude-code-607", 607),
+    ]
+
+
+def test_discover_agent_processes_matches_claude_cli_equals_form_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(pid=10, command="opensre"),
+            ProcessRow(pid=651, command="claude --resume=abc-123"),
+            ProcessRow(pid=652, command="claude --prefill=demo"),
+            ProcessRow(pid=653, command="claude --print=one-shot"),
+            ProcessRow(pid=654, command="claude -r=abc-123"),
+            ProcessRow(pid=655, command="claude -p=short"),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [
+        ("claude-code-651", 651),
+        ("claude-code-652", 652),
+        ("claude-code-653", 653),
+        ("claude-code-654", 654),
+        ("claude-code-655", 655),
+    ]
+
+
+def test_discover_agent_processes_rejects_claude_desktop_main_in_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(pid=701, command="/Applications/Claude.app/Contents/MacOS/Claude"),
+        ],
+    )
+
+    assert discovery.discover_agent_processes() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/snap/claude/current/usr/bin/claude",
+        "/usr/lib/claude-desktop/claude-desktop",
+        "/tmp/.mount_Claude_xyz123/usr/bin/claude",
+        "'C:\\Program Files\\Claude\\Claude.exe'",
+        "'C:\\Users\\me\\AppData\\Local\\Programs\\Claude\\Claude.exe'",
+    ],
+)
+def test_discover_agent_processes_rejects_claude_desktop_cross_platform_paths(
+    monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [ProcessRow(pid=801, command=command)],
+    )
+
+    assert discovery.discover_agent_processes() == []
+    assert discovery.discover_agent_processes(include_all=True) == []
+
+
+def test_discover_agent_processes_does_not_drop_claude_print_with_helper_in_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(
+                pid=910,
+                command="claude --print 'look at the helper output from pty-host yesterday'",
+            ),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [("claude-code-910", 910)]
+
+
+def test_discover_agent_processes_does_not_drop_claude_print_with_desktop_path_in_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [
+            ProcessRow(
+                pid=915,
+                command=(
+                    "claude --print 'inspect /Applications/Claude.app/Contents/MacOS/Claude logs'"
+                ),
+            ),
+        ],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [("claude-code-915", 915)]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/opt/Claude/claude",
+        "/opt/Claude/claude --resume id",
+        "/opt/claude-cli/bin/claude --resume sess",
+    ],
+)
+def test_discover_agent_processes_allows_cli_installed_under_opt_claude_prefix(
+    monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setattr(discovery.os, "getpid", lambda: 10)
+    monkeypatch.setattr(
+        discovery,
+        "_current_process_rows",
+        lambda: [ProcessRow(pid=920, command=command)],
+    )
+
+    candidates = discovery.discover_agent_processes()
+
+    assert [(item.name, item.pid) for item in candidates] == [("claude-code-920", 920)]
+
+
+@pytest.mark.parametrize(
+    "cmdline",
+    [
+        ["C:\\Program Files\\Claude\\Claude.exe"],
+        ["C:\\Users\\me\\AppData\\Local\\Programs\\Claude\\Claude.exe"],
+        ["/Applications/Claude.app/Contents/MacOS/Claude"],
+        ["/snap/claude/current/usr/bin/claude"],
+        ["/usr/lib/claude-desktop/claude-desktop"],
+        ["/tmp/.mount_Claude_xyz123/usr/bin/claude"],
+    ],
+)
+def test_is_claude_desktop_artifact_recognises_known_packaging_paths(
+    cmdline: list[str],
+) -> None:
+    assert discovery._is_claude_desktop_artifact(cmdline) is True
+
+
+@pytest.mark.parametrize(
+    "cmdline",
+    [
+        ["claude"],
+        ["claude", "--resume", "abc"],
+        ["/Users/me/.npm-global/bin/claude"],
+        ["/Users/me/.local/bin/claude", "--prefill", "demo"],
+        ["/usr/local/bin/claude"],
+        ["/opt/claude-rs/claude", "--resume", "id"],
+        ["/opt/snap/claude-cli/bin/claude"],
+        ["/opt/Claude/claude"],
+        [
+            "claude",
+            "--print",
+            "inspect /Applications/Claude.app/Contents/MacOS/Claude logs",
+        ],
+        ["/Users/me/macos/claude"],
+        ["/opt/tools/macos/claude"],
+        ["/home/user/my-claude-desktop-wrapper/bin/claude"],
+        ["/usr/lib/claude-desktop-tools/cli/claude"],
+    ],
+)
+def test_is_claude_desktop_artifact_passes_through_cli_invocations(
+    cmdline: list[str],
+) -> None:
+    assert discovery._is_claude_desktop_artifact(cmdline) is False
+
+
+def test_discover_agents_legacy_path_matches_bare_claude_via_cursor_terminal(
+    tmp_path: Path,
+) -> None:
+    terminal = tmp_path / "project" / "terminals" / "72.txt"
+    terminal.parent.mkdir(parents=True)
+    terminal.write_text(
+        "---\npid: 67890\ncwd: /repo\nactive_command: claude --resume sess-1\n---\n",
+        encoding="utf-8",
+    )
+
+    records = discover_agents(process_rows=[], cursor_projects_dir=tmp_path)
+
+    assert [(record.name, record.pid, record.source) for record in records] == [
+        ("claude-code", 67890, "discovered")
+    ]
+
+
+def test_discover_agents_legacy_path_rejects_claude_desktop_main(tmp_path: Path) -> None:
+    records = discover_agents(
+        process_rows=[
+            ProcessRow(pid=901, command="/Applications/Claude.app/Contents/MacOS/Claude"),
+        ],
+        cursor_projects_dir=tmp_path,
+    )
+
+    assert records == []
 
 
 def test_display_command_truncates_long_commands() -> None:

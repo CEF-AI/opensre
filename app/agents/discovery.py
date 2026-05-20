@@ -43,6 +43,18 @@ _LOOSE_AGENT_SIGNATURES: tuple[tuple[str, str], ...] = (
     ("codex", "codex"),
     ("gemini", "gemini-cli"),
 )
+_CLAUDE_CODE_CLI_ARG_TOKENS: frozenset[str] = frozenset(
+    {"--resume", "--prefill", "--print", "--continue", "-p", "-c", "-r"}
+)
+_CLAUDE_DESKTOP_PATH_HINTS: tuple[str, ...] = (
+    "claude.app/contents/",
+    "/claude-desktop/",
+    "/snap/claude/",
+    "/usr/lib/claude-desktop/",
+    "/.mount_claude",
+    "\\program files\\claude\\",
+    "\\appdata\\local\\programs\\claude\\",
+)
 
 
 @dataclass(frozen=True)
@@ -350,6 +362,7 @@ def _record_from_cursor_terminal(path: Path) -> AgentRecord | None:
 
 def _agent_name_for_command(command: str) -> str | None:
     lower = command.lower()
+    cmdline = _split_command(command)
 
     if ".cursor/extensions/anthropic.claude-code" in lower:
         return "cursor-claude-code"
@@ -357,7 +370,7 @@ def _agent_name_for_command(command: str) -> str | None:
         return "cursor-agent-exec"
     if "cursor-agent" in lower or "cursor agent" in lower:
         return "cursor-agent"
-    if _has_command_token(lower, "claude") and _has_command_token(lower, "code"):
+    if not _is_claude_desktop_artifact(cmdline) and _claude_code_cli_matches_cmdline(cmdline):
         return "claude-code"
     if _is_codex_command(command):
         return "codex"
@@ -368,22 +381,51 @@ def _agent_name_for_command(command: str) -> str | None:
     return None
 
 
-def _classify_agent(process_name: str, cmdline: list[str], *, include_all: bool) -> str | None:
+def _claude_code_cli_matches_cmdline(cmdline: list[str]) -> bool:
+    if not cmdline:
+        return False
+    if _normalized_token(cmdline[0]) != "claude":
+        return False
+    lowered = [part.lower() for part in cmdline]
+    args = [_normalized_token(part) for part in cmdline[1:]]
+    if "code" in args:
+        return True
+    if _has_option_pair(lowered, "--input-format", "stream-json"):
+        return True
+    if _has_option_pair(lowered, "--output-format", "stream-json"):
+        return True
+    if any(_option_name(token) in _CLAUDE_CODE_CLI_ARG_TOKENS for token in lowered[1:]):
+        return True
+    return len(cmdline) == 1
+
+
+def _option_name(arg: str) -> str:
+    return arg.split("=", 1)[0]
+
+
+def _classify_agent(
+    process_name: str,
+    cmdline: list[str],
+    *,
+    include_all: bool,
+) -> str | None:
     if not cmdline:
         return None
+    executable = _normalized_token(cmdline[0])
+
+    if executable == "claude":
+        if _is_claude_desktop_artifact(cmdline):
+            return None
+        if _claude_code_cli_matches_cmdline(cmdline):
+            return "claude-code"
+        # Intentional fall-through: an unrecognised `claude …` shape still
+        # reaches the noise / loose-classification path below so that `--all`
+        # surfaces it via the `claude` token signature. Do not add an early
+        # `return None` here — it would silently break `opensre agents scan --all`.
+
     if _is_noise_process(process_name, cmdline):
         return _classify_agent_loose(process_name, cmdline) if include_all else None
 
-    executable = _normalized_token(cmdline[0])
-    args = [_normalized_token(part) for part in cmdline[1:]]
-    lowered = [part.lower() for part in cmdline]
-
-    if executable == "claude" and (
-        "code" in args
-        or _has_option_pair(lowered, "--input-format", "stream-json")
-        or _has_option_pair(lowered, "--output-format", "stream-json")
-    ):
-        return "claude-code"
     if executable == "aider":
         return "aider"
     if executable == "codex":
@@ -398,6 +440,8 @@ def _classify_agent(process_name: str, cmdline: list[str], *, include_all: bool)
 
 
 def _classify_agent_loose(process_name: str, cmdline: list[str]) -> str | None:
+    if _is_claude_desktop_artifact(cmdline):
+        return None
     haystack = f"{process_name} {' '.join(cmdline)}".lower()
     tokens = {_normalized_token(part) for part in cmdline}
     tokens.add(_normalized_token(process_name))
@@ -412,11 +456,26 @@ def _classify_agent_loose(process_name: str, cmdline: list[str]) -> str | None:
     return None
 
 
+def _is_claude_desktop_artifact(cmdline: list[str]) -> bool:
+    # Match desktop-bundle / installer hints against argv[0] only — never against
+    # the full command. Prompt-bearing flags (e.g. `claude --print "inspect
+    # /Applications/Claude.app/..."`) must not falsely trip the negative filter.
+    #
+    # The trailing-slash sentinel lets `/claude-desktop/` match both directories
+    # (`/usr/lib/claude-desktop/...`) and end-of-string binaries
+    # (`/.../bin/claude-desktop`) while rejecting `/.../my-claude-desktop-tools/`.
+    if not cmdline:
+        return False
+    lowered = cmdline[0].lower() + "/"
+    return any(hint in lowered for hint in _CLAUDE_DESKTOP_PATH_HINTS)
+
+
 def _is_noise_process(process_name: str, cmdline: list[str]) -> bool:
-    haystack_parts = [
-        _normalized_token(process_name),
-        *(_normalized_token(part) for part in cmdline),
-    ]
+    # Restrict the haystack to process_name + argv[0] so prompt-bearing flags
+    # like `claude --print "...helper..."` do not falsely trip the noise filter.
+    haystack_parts = [_normalized_token(process_name)]
+    if cmdline:
+        haystack_parts.append(_normalized_token(cmdline[0]))
     haystack = " ".join(part for part in haystack_parts if part)
     if any(token in haystack for token in _NOISE_PROCESS_TOKENS):
         return True

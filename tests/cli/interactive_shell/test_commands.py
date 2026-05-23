@@ -1049,6 +1049,7 @@ class TestInvestigateFileCommand:
         console, buf = _capture()
         dispatch_slash("/investigate", ReplSession(), console)
         assert "usage" in buf.getvalue()
+        assert "/investigate <file|template>" in buf.getvalue()
 
     def test_missing_file_prints_error(self) -> None:
         session = ReplSession()
@@ -1079,6 +1080,150 @@ class TestInvestigateFileCommand:
         dispatch_slash(f"/investigate {alert_file}", session, console)
         assert session.last_state == {"root_cause": "test cause"}
         assert '{"alert_name": "test"}' in captured[0]
+
+    def test_template_arg_runs_sample_alert(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[str] = []
+
+        def _fake_sample(
+            *,
+            template_name: str,
+            context_overrides: object = None,
+            cancel_requested: object = None,
+        ) -> dict[str, str]:
+            _ = (context_overrides, cancel_requested)
+            captured.append(template_name)
+            return {"root_cause": "sample cause"}
+
+        monkeypatch.setattr("app.cli.investigation.run_sample_alert_for_session", _fake_sample)
+
+        session = ReplSession()
+        console, _ = _capture()
+        dispatch_slash("/investigate generic", session, console)
+
+        assert captured == ["generic"]
+        assert session.last_state == {"root_cause": "sample cause"}
+
+    def test_template_arg_tracks_cli_repl_file_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        track_calls: list[tuple[str, str, str | None]] = []
+
+        class _TrackContext:
+            def __enter__(self) -> None:
+                return None
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                _ = (exc_type, exc, tb)
+                return False
+
+        def _fake_track(*, entrypoint, trigger_mode, input_path=None, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            track_calls.append((entrypoint.value, trigger_mode.value, input_path))
+            return _TrackContext()
+
+        monkeypatch.setattr("app.analytics.cli.track_investigation", _fake_track)
+        monkeypatch.setattr(
+            "app.cli.investigation.run_sample_alert_for_session",
+            lambda **_kwargs: {"root_cause": "sample cause"},
+        )
+
+        session = ReplSession()
+        console, _ = _capture()
+        dispatch_slash("/investigate generic", session, console)
+
+        assert track_calls == [("cli_repl_file", "file", "template:generic")]
+
+    def test_template_name_takes_precedence_over_local_same_name_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "generic").write_text('{"alert_name": "local-file"}', encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        calls: list[str] = []
+
+        def _fake_sample(
+            *,
+            template_name: str,
+            context_overrides: object = None,
+            cancel_requested: object = None,
+        ) -> dict[str, str]:
+            _ = (context_overrides, cancel_requested)
+            calls.append(template_name)
+            return {"root_cause": "template-wins"}
+
+        monkeypatch.setattr("app.cli.investigation.run_sample_alert_for_session", _fake_sample)
+
+        session = ReplSession()
+        console, _ = _capture()
+        dispatch_slash("/investigate generic", session, console)
+
+        assert calls == ["generic"]
+        assert session.last_state == {"root_cause": "template-wins"}
+
+    def test_missing_arg_in_tty_opens_interactive_menu(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.cli.interactive_shell.command_registry import investigation as investigation_cmd
+
+        picks = iter(["generic", "done"])
+        captured: list[str] = []
+
+        def _fake_sample(
+            *,
+            template_name: str,
+            context_overrides: object = None,
+            cancel_requested: object = None,
+        ) -> dict[str, str]:
+            _ = (context_overrides, cancel_requested)
+            captured.append(template_name)
+            return {"root_cause": "sample from menu"}
+
+        monkeypatch.setattr(investigation_cmd, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(investigation_cmd, "repl_choose_one", lambda **_: next(picks))
+        monkeypatch.setattr("app.cli.investigation.run_sample_alert_for_session", _fake_sample)
+
+        session = ReplSession()
+        console, buf = _capture()
+        dispatch_slash("/investigate", session, console)
+
+        assert captured == ["generic"]
+        assert session.last_state == {"root_cause": "sample from menu"}
+        assert "usage" not in buf.getvalue().lower()
+
+    def test_tty_investigate_menu_browse_path_runs_custom_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.cli.interactive_shell.command_registry import investigation as investigation_cmd
+
+        alert_file = tmp_path / "custom_alert.json"
+        alert_file.write_text('{"alert_name": "custom"}', encoding="utf-8")
+
+        picks = iter(["__browse__", "done"])
+        captured: list[str] = []
+
+        def _fake(
+            alert_text: str,
+            context_overrides: object = None,
+            cancel_requested: object = None,
+        ) -> dict[str, str]:
+            _ = (context_overrides, cancel_requested)
+            captured.append(alert_text)
+            return {"root_cause": "custom path run"}
+
+        monkeypatch.setattr(investigation_cmd, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(investigation_cmd, "repl_choose_one", lambda **_: next(picks))
+        monkeypatch.setattr(
+            investigation_cmd,
+            "_prompt_investigate_path",
+            lambda _console: str(alert_file),
+        )
+        monkeypatch.setattr("app.cli.investigation.run_investigation_for_session", _fake)
+
+        session = ReplSession()
+        console, _ = _capture()
+        dispatch_slash("/investigate", session, console)
+
+        assert session.last_state == {"root_cause": "custom path run"}
+        assert '"alert_name": "custom"' in captured[0]
 
     def test_investigate_file_tracks_cli_repl_file_source(
         self, tmp_path: object, monkeypatch: object
@@ -1387,7 +1532,7 @@ class TestPrePolicyValidation:
     @pytest.mark.parametrize(
         "command,expected_usage_fragment",
         [
-            ("/investigate", "/investigate <file>"),
+            ("/investigate", "/investigate <file|template>"),
             ("/save", "/save <path>"),
             ("/cancel", "/cancel <task_id>"),
         ],
@@ -1424,7 +1569,7 @@ class TestPrePolicyValidation:
         console, buf = _capture()
         dispatch_slash("/investigate", session, console, confirm_fn=_confirm, is_tty=True)
 
-        assert "/investigate <file>" in buf.getvalue()
+        assert "/investigate <file|template>" in buf.getvalue()
         assert confirm_calls == [], "trust mode must not skip arg validation"
 
     def test_investigate_with_valid_arg_skips_policy_prompt(self, tmp_path: Path) -> None:
@@ -1458,7 +1603,7 @@ class TestSlashValidatorFunctions:
     @pytest.mark.parametrize(
         "validator,expected_usage_fragment",
         [
-            (_validate_investigate_args, "/investigate <file>"),
+            (_validate_investigate_args, "/investigate <file|template>"),
             (_validate_save_args, "/save <path>"),
             (_validate_cancel_args, "/cancel <task_id>"),
         ],

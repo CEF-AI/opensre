@@ -76,23 +76,29 @@ class ProviderOption:
     allow_custom_models: bool = False
 
 
+# Source: https://docs.anthropic.com/en/docs/about-claude/models/overview
 ANTHROPIC_MODELS = (
     ModelOption(value=ANTHROPIC_REASONING_MODEL, label="Claude Opus 4.7"),
-    ModelOption(value="claude-sonnet-4-20250514", label="Claude Sonnet 4"),
+    ModelOption(value="claude-sonnet-4-6", label="Claude Sonnet 4.6"),
+    ModelOption(value="claude-haiku-4-5", label="Claude Haiku 4.5"),
 )
 
+# Source: https://platform.openai.com/docs/models
+# Codex model IDs are intentionally omitted here: OpenSRE's direct OpenAI
+# provider uses Chat Completions, while Codex models require a different API path.
 OPENAI_MODELS = (
     ModelOption(value=OPENAI_REASONING_MODEL, label="GPT-5.4 mini"),
+    ModelOption(value="gpt-5.5", label="GPT-5.5"),
     ModelOption(value="gpt-5.4", label="GPT-5.4"),
     ModelOption(value="gpt-5.4-nano", label="GPT-5.4 nano"),
-    ModelOption(value="gpt-5.3-codex", label="GPT-5.3-Codex"),
 )
 
+# Source: https://openrouter.ai/api/v1/models
 OPENROUTER_MODELS = (
     ModelOption(value=OPENROUTER_REASONING_MODEL, label="OpenRouter Auto (smart routing)"),
-    ModelOption(value="openai/gpt-5.2", label="GPT-5.2 (via OpenRouter)"),
-    ModelOption(value="anthropic/claude-opus-4.6", label="Claude Opus 4.6 (via OpenRouter)"),
-    ModelOption(value="anthropic/claude-sonnet-4.5", label="Claude Sonnet 4.5 (via OpenRouter)"),
+    ModelOption(value="openai/gpt-5.5", label="GPT-5.5 (via OpenRouter)"),
+    ModelOption(value="anthropic/claude-opus-4.7", label="Claude Opus 4.7 (via OpenRouter)"),
+    ModelOption(value="anthropic/claude-sonnet-4.6", label="Claude Sonnet 4.6 (via OpenRouter)"),
     ModelOption(value="anthropic/claude-haiku-4.5", label="Claude Haiku 4.5 (via OpenRouter)"),
     ModelOption(
         value="google/gemini-3.1-pro-preview", label="Gemini 3.1 Pro (preview, via OpenRouter)"

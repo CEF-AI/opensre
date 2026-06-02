@@ -1,0 +1,105 @@
+name: Closed-loop learning (weekly miss triage)
+
+# Weekly reminder workflow for the closed-loop learning process documented
+# in docs/closed-loop-learning.mdx. Runs at 09:00 UTC every Monday and
+# also supports manual triggering.
+#
+# The workflow does not consume the per-user ``~/.opensre/misses.jsonl``
+# store directly (that lives on engineer machines, not on the runner).
+# Its purpose is to:
+#   1) Open or refresh a tracking issue that nudges the on-call engineer
+#      to run ``opensre misses stats --since 7d`` and then
+#      ``opensre misses export --since 7d --top 10 --out tests/benchmarks/production_misses/``.
+#   2) Verify the ``misses_command`` CLI surface is still wired and exits
+#      cleanly, so the weekly process is not blocked by a CLI regression.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  smoke:
+    name: Verify opensre misses CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Smoke test misses CLI
+        run: |
+          uv run opensre misses --help
+          uv run opensre misses list --json
+          uv run opensre misses stats --json
+
+  remind:
+    name: Open weekly triage reminder
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Open or refresh tracking issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "Weekly closed-loop learning triage";
+            const week = new Date().toISOString().slice(0, 10);
+            const body = [
+              "Weekly nudge per docs/closed-loop-learning.mdx.",
+              "",
+              `Triage window: week of ${week}`,
+              "",
+              "Steps for this week's on-call:",
+              "- [ ] `opensre misses stats --since 7d`",
+              "- [ ] Review recurring `(alert, taxonomy)` pairs",
+              "- [ ] `opensre misses export --since 7d --top 10 --out tests/benchmarks/production_misses/`",
+              "- [ ] Open a PR labelled `benchmark` with the new scenarios",
+              "- [ ] Trigger the benchmark workflow on the PR branch",
+            ].join("\n");
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "closed-loop-learning",
+            });
+
+            const existing = issues.find((i) => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["closed-loop-learning"],
+              });
+            }

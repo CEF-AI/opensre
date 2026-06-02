@@ -89,6 +89,7 @@
               "sessions",
               "agents",
               "cron",
+              "closed-loop-learning",
               "multi-instance-integrations"
             ]
           },

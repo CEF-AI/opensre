@@ -20,6 +20,7 @@ from app.cli.commands.guardrails import guardrails
 from app.cli.commands.hermes import hermes_command
 from app.cli.commands.integrations import integrations
 from app.cli.commands.messaging import messaging
+from app.cli.commands.misses import misses_command
 from app.cli.commands.onboard import onboard
 from app.cli.commands.remote import remote
 from app.cli.commands.tests import tests
@@ -35,6 +36,7 @@ _COMMANDS: tuple[click.Command, ...] = (
     guardrails,
     agents,
     messaging,
+    misses_command,
     hermes_command,
     cron_command,
     watchdog_command,

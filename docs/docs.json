@@ -183,7 +183,8 @@
               "rabbitmq",
               "rds",
               "snowflake",
-              "supabase"
+              "supabase",
+              "redis"
             ]
           }
         ]

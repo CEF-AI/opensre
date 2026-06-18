@@ -16,11 +16,12 @@ import os
 import platform
 
 from rich.console import Console
+from rich.markup import escape
 
 from app.analytics.cli import capture_github_login_completed, identify_github_username
 from app.analytics.source import is_test_run
 from app.cli.interactive_shell.ui import repl_tty_interactive
-from app.constants import GITHUB_FIRST_LAUNCH_MARKER
+from app.cli.interactive_shell.ui.theme import DEVICE_CODE
 
 _SKIP_ENV_VAR = "OPENSRE_SKIP_GITHUB_LOGIN"
 _ELIGIBLE_OS = frozenset({"Darwin", "Windows"})
@@ -33,23 +34,6 @@ def _skip_requested() -> bool:
 
 def _eligible_os() -> bool:
     return platform.system() in _ELIGIBLE_OS
-
-
-def _marker_exists() -> bool:
-    try:
-        return GITHUB_FIRST_LAUNCH_MARKER.exists()
-    except OSError:
-        return False
-
-
-def _write_marker() -> None:
-    try:
-        GITHUB_FIRST_LAUNCH_MARKER.parent.mkdir(parents=True, exist_ok=True)
-        GITHUB_FIRST_LAUNCH_MARKER.touch(exist_ok=True)
-    except OSError:
-        # A missing marker only means we re-evaluate the (cheap) gate next launch;
-        # never let a write failure block the user from entering the REPL.
-        pass
 
 
 def _github_already_configured() -> bool:
@@ -74,11 +58,12 @@ def should_require_github_login() -> bool:
         return False
     if not repl_tty_interactive():
         return False
-    if _marker_exists():
-        return False
-    if _github_already_configured():
-        return False
-    return True
+    # GitHub being configured is the authoritative bypass. We intentionally do
+    # NOT consult a first-launch "completion" marker here: a stale marker must
+    # never let the REPL start once the GitHub integration has been removed
+    # (e.g. via ``/integrations remove github``). Re-checking the store is cheap,
+    # so the gate always re-runs when GitHub is not currently configured.
+    return not _github_already_configured()
 
 
 def _propagate_username(username: str) -> None:
@@ -96,8 +81,7 @@ def _print_intro(console: Console) -> None:
         "incidents against your source. Sign in once with your browser."
     )
     console.print(
-        f"[dim](Set {_SKIP_ENV_VAR}=1 to skip this — e.g. if GitHub sign-in is "
-        "unavailable.)[/dim]"
+        f"[dim](Set {_SKIP_ENV_VAR}=1 to skip this — e.g. if GitHub sign-in is unavailable.)[/dim]"
     )
 
 
@@ -106,10 +90,11 @@ def _show_device_code(console: Console, code: object) -> None:
 
     if not isinstance(code, GitHubDeviceCode):
         return
+    user_code = escape(code.user_code)
     console.print()
     console.print(f"  1. Your browser will open [underline]{code.verification_uri}[/underline]")
     console.print("     (if it doesn't open automatically, visit that URL yourself).")
-    console.print(f"  2. Enter this one-time code when GitHub asks: [bold]{code.user_code}[/bold]")
+    console.print(f"  2. Enter this one-time code when GitHub asks: [{DEVICE_CODE}]{user_code}[/]")
     console.print("  3. Approve the request for OpenSRE.")
     console.print()
     console.print("  [dim]Waiting for you to approve in the browser… (Ctrl-C to cancel)[/dim]")
@@ -123,7 +108,7 @@ def _print_quit_guidance(console: Console) -> None:
     )
 
 
-def _ask_retry(console: Console) -> bool:
+def _ask_retry(_console: Console) -> bool:
     import questionary
 
     try:
@@ -153,7 +138,9 @@ def _attempt_login(console: Console) -> str:
         return "failed"
 
     if result.ok:
-        _write_marker()
+        # Persisting the GitHub integration (done inside
+        # ``authenticate_and_configure_github``) is what suppresses the gate on
+        # subsequent launches — there is no separate completion marker to write.
         _propagate_username(result.username)
         who = f"@{result.username}" if result.username else "your GitHub account"
         console.print(f"[bold]Connected.[/bold] Signed in as {who}.")

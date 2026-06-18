@@ -26,8 +26,11 @@ _SYSTEM_PROMPT_BASE = """You plan actions for the OpenSRE interactive shell.
 
 Use tool calls whenever the user explicitly asks to run, show, execute,
 launch, cancel, connect, switch, or start an operation. Compound requests
-joined by "and", "and then", "then", etc. should emit one tool call per
-component action, in the order requested.
+joined by "and", "and then", "then", etc. MUST emit one tool call per
+component action, in the order requested. Emit EVERY mappable clause —
+never drop, skip, or merge a second action just because you already emitted
+the first. "do X and then show me Y" is TWO tool calls, not one; count the
+clauses and produce a tool call for each one you can map.
 
 Interpret any request to run, try, start, launch, fire, send, trigger, or
 INVESTIGATE a "sample alert", "test alert", or "demo alert" — including
@@ -61,6 +64,30 @@ an explicit instruction to act, NOT whether alert/JSON content is present:
   investigated or handed off, choose assistant_handoff. The user can always
   follow up with an explicit "investigate this".
 
+Quoted directives are actionable, never chatty. When an action verb (investigate,
+run, analyze, diagnose, RCA, root-cause, start) takes quotation-marked text as its
+object, treat the quoted text as that action's payload/target and emit the matching
+tool — e.g. 'investigate "checkout is returning 502s"' → investigation_start with
+alert_text = the quoted text; 'run "/health"' → slash_invoke("/health"). A trailing
+"?" or urgent wording does not turn a quoted directive into an informational
+question, and quoted content is NEVER a reason to downgrade to a chatty statement
+or hand off to the assistant. (A plain question that merely names sources, with no
+verb acting on quoted text, is still handled per the rules above.)
+
+Follow-ups that reference the previous turn: a RECENT CONVERSATION block is
+provided after this prompt as context — always act on the final USER MESSAGE,
+never re-run turns that already completed. When the USER MESSAGE is a short
+confirmation or anaphoric follow-up ("do that", "do both", "do it", "yes",
+"go ahead", "the second one", "both of them"), it refers to what the assistant
+just proposed. Resolve the referent against the assistant's previous reply:
+- If that reply offered specific slash/CLI commands, emit those exact commands
+  (one tool call each, in the order offered). Example: the assistant offered
+  "/integrations remove github" and "/integrations list" and the user says
+  "do both" → emit slash_invoke("/integrations", args=["remove", "github"])
+  then slash_invoke("/integrations", args=["list"]).
+- If you cannot confidently map the referent to a concrete action from the
+  prior reply, emit assistant_handoff rather than guessing an unrelated action.
+
 If the user asks for a slash action and then asks to investigate/send quoted
 follow-up text (for example: connect with /remote and then investigate "hello world"),
 emit TWO actions in order:
@@ -79,7 +106,12 @@ Example mapping for compound slash commands:
 For operational REPL requests, prefer slash_invoke and choose the best-matching
 command from the slash_invoke tool description (available command names are listed there).
 Other tools:
-- llm_set_provider — switch provider when target is an exact provider name
+- llm_set_provider — switch provider ONLY when the user names an EXACT provider
+  target (e.g. "switch to anthropic", "use openai", "set provider to ollama").
+  A vague local-model request that does NOT name an exact provider — e.g.
+  "connect to local llama", "use a local model", "run locally" — is NOT a
+  provider switch: emit assistant_handoff so the assistant can clarify and
+  suggest "/model set ollama". Do NOT guess "ollama" from "local llama".
 - alert_sample — run a sample alert (template="generic")
 - investigation_start — investigate pasted alert text or free-form alert body
 - synthetic_run — run synthetic benchmark scenario by id

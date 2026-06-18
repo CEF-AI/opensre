@@ -12,6 +12,10 @@ from rich.markdown import Markdown
 from rich.markup import escape
 
 from app.cli.interactive_shell.prompt_logging import LlmRunInfo
+from app.cli.interactive_shell.prompting.conversation_history import (
+    MAX_CONVERSATION_MESSAGES,
+    format_recent_conversation,
+)
 from app.cli.interactive_shell.prompting.follow_up import _summarize_last_state
 from app.cli.interactive_shell.prompting.prompt_rules import (
     CLI_ASSISTANT_MARKDOWN_RULE,
@@ -43,9 +47,6 @@ from app.cli.interactive_shell.ui import (
 )
 from app.cli.support.exception_reporting import report_exception
 from app.integrations.llm_cli.errors import CLITimeoutError
-
-# Cap stored (user, assistant) pairs; list holds 2 entries per turn.
-_MAX_CLI_AGENT_TURNS = 12
 
 _MAX_SYNTHETIC_OBSERVATION_PROMPT_CHARS = 120_000
 
@@ -95,9 +96,8 @@ _ACTION_RULE = (
     "/model show, /health, /doctor, /version; "
     '`{"action":"run_cli_command","args":"<subcommand> <flags>"}` '
     "to run any opensre subcommand (agent is blocked); "
-    '`{"action":"run_interactive","command":"/integrations setup <service>"}` '
-    "to launch an interactive setup/connect wizard the user asked for (only "
-    "`/integrations setup <service>` or `/mcp connect <server>` are allowed). "
+    '`{"action":"run_interactive","command":"/<command> <args>"}` '
+    "to launch any registered OpenSRE interactive slash command the user asked for. "
     "For ordinary "
     "questions, return normal Markdown. Do not return action JSON for vague "
     "local model requests such as `connect to local llama`; answer with a brief "
@@ -130,15 +130,36 @@ _SETUP_GUIDANCE_RULE = (
     "needs. This applies to any integration; never hardcode advice to one vendor."
 )
 
-# Interactive commands the assistant may auto-launch via a run_interactive action.
-# These spawn a child process that needs exclusive stdin, so they are queued to
-# run through the REPL's normal exclusive-stdin dispatch rather than inline.
-_INTERACTIVE_LAUNCH_PREFIXES: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("/integrations", "setup"),
-        ("/mcp", "connect"),
-    }
-)
+
+# `run_interactive` is not a narrow feature allowlist. It is the bridge from an
+# agent-planned action back into the OpenSRE interactive shell. Any command that
+# is registered in the slash-command registry is already an OpenSRE command and
+# must stay eligible here.
+#
+# Keep this registry-backed instead of listing subcommands like
+# `/integrations setup` or `/integrations remove`: duplicating subcommand lists
+# here drifts from the actual dispatcher and causes valid OpenSRE commands to be
+# rejected before the normal policy/confirmation flow can evaluate them. The
+# dispatcher remains the source of truth for argument validation, execution tier,
+# confirmation, exclusive-stdin handling, and the command's side effects.
+#
+# The only thing this gate should reject is non-OpenSRE input: empty strings,
+# shell snippets, arbitrary text, or unknown slash commands. Do not reintroduce
+# a per-command allowlist in this file.
+def _registered_interactive_command(command: str) -> bool:
+    parts = command.strip().split()
+    if not parts:
+        return False
+    name = parts[0].lower()
+    if name == "/":
+        return True
+    if not name.startswith("/"):
+        return False
+
+    from app.cli.interactive_shell.command_registry import SLASH_COMMANDS
+
+    return name in SLASH_COMMANDS
+
 
 _ALLOWED_SLASH_ACTIONS = frozenset(
     {
@@ -156,16 +177,6 @@ def _opensre_integration_command_blocked(payload: str, session: ReplSession) -> 
         return False
     lowered = payload.strip().lower()
     return lowered.startswith("integrations") or "integration" in lowered
-
-
-def _format_history_for_prompt(session: ReplSession) -> str:
-    """Render recent CLI agent turns for multi-turn context."""
-    lines: list[str] = []
-    cap = _MAX_CLI_AGENT_TURNS * 2
-    for role, content in session.cli_agent_messages[-cap:]:
-        label = "User" if role == "user" else "Assistant"
-        lines.append(f"{label}: {content}")
-    return "\n".join(lines) if lines else "(no prior messages in this CLI thread)"
 
 
 def _build_environment_block(session: ReplSession) -> str:
@@ -489,19 +500,17 @@ def _execute_action_plan(
 
         if kind == "run_interactive":
             command = str(action.get("command", "")).strip()
-            parts = command.split()
-            head = tuple(part.lower() for part in parts[:2])
-            if head not in _INTERACTIVE_LAUNCH_PREFIXES:
+            if not _registered_interactive_command(command):
                 console.print(f"[{ERROR}]unsupported interactive command:[/] {escape(command)}")
                 continue
             from app.cli.interactive_shell.ui.choice_menu import repl_tty_interactive
 
             if not repl_tty_interactive():
                 # No interactive prompt to auto-submit into (scripted/non-TTY);
-                # fall back to telling the user the command to run.
+                # fall back to telling the user the exact registered OpenSRE
+                # slash command to run in an interactive shell.
                 console.print(
-                    f"Run [bold]{escape(command)}[/bold] to start the interactive setup; "
-                    "it prompts for the required credentials."
+                    f"Run [bold]{escape(command)}[/bold] in the interactive shell to continue."
                 )
                 continue
             console.print(f"[{DIM}]Launching[/] [{BOLD_BRAND}]{escape(command)}[/]…")
@@ -516,9 +525,8 @@ def _execute_action_plan(
 def _record_cli_agent_turn(session: ReplSession, message: str, assistant_text: str) -> None:
     session.cli_agent_messages.append(("user", message))
     session.cli_agent_messages.append(("assistant", assistant_text))
-    cap = _MAX_CLI_AGENT_TURNS * 2
-    if len(session.cli_agent_messages) > cap:
-        session.cli_agent_messages[:] = session.cli_agent_messages[-cap:]
+    if len(session.cli_agent_messages) > MAX_CONVERSATION_MESSAGES:
+        session.cli_agent_messages[:] = session.cli_agent_messages[-MAX_CONVERSATION_MESSAGES:]
 
 
 def _build_observation_block(tool_observation: str | None, *, on_screen: bool = True) -> str:
@@ -549,7 +557,11 @@ def _build_observation_block(tool_observation: str | None, *, on_screen: bool = 
             "user's question; the tool results are below and are NOT otherwise shown to "
             "the user. Answer the user's question directly using these results, citing "
             "the concrete findings (e.g. relevant issues, log lines, or metrics). If the "
-            "data does not contain the answer, say so plainly."
+            "data does not contain the answer, say so plainly. You have ALREADY queried "
+            "the connected sources, so do NOT tell the user to paste an alert or to run "
+            "`opensre investigate`; instead report what each source returned and, if you "
+            "need more signal, ask for the specific detail (error string, service, "
+            "version, or time window) that would let you narrow it down here."
         )
     return (
         f"{framing} Do NOT request, plan, or emit any further actions — just answer in "
@@ -592,7 +604,7 @@ def answer_cli_agent(
     agents_md = build_agents_md_reference_text()
     investigation_flow = build_investigation_flow_reference_text()
     log_grounding_cache_diagnostics("cli_agent_grounding")
-    history = _format_history_for_prompt(session)
+    history = format_recent_conversation(session)
     prior_investigation = (
         _summarize_last_state(session.last_state) if session.last_state is not None else ""
     )

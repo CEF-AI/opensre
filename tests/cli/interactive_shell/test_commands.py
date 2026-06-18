@@ -324,7 +324,6 @@ class TestSpecificListCommands:
 
     _FAKE_INTEGRATIONS = [
         {"service": "datadog", "source": "store", "status": "ok", "detail": "API ok"},
-        # `missing` integrations are omitted from `/integrations list`; keep slack visible here.
         {"service": "slack", "source": "env", "status": "failed", "detail": "No bot token"},
         {"service": "github", "source": "store", "status": "ok", "detail": "MCP ok"},
         {"service": "openclaw", "source": "store", "status": "failed", "detail": "401 from server"},
@@ -337,16 +336,15 @@ class TestSpecificListCommands:
             lambda: list(self._FAKE_INTEGRATIONS),
         )
 
-    def test_integrations_list_excludes_mcp_services(self, monkeypatch: object) -> None:
+    def test_integrations_list_includes_mcp_services(self, monkeypatch: object) -> None:
         self._patch_verify(monkeypatch)
         console, buf = _capture()
         dispatch_slash("/integrations list", ReplSession(), console)
         output = buf.getvalue()
         assert "datadog" in output
         assert "slack" in output
-        # MCP-classified services are reserved for /mcp list.
-        assert "openclaw" not in output
-        assert "github" not in output
+        assert "openclaw" in output
+        assert "github" in output
 
     def test_mcp_list_shows_only_mcp_services(self, monkeypatch: object) -> None:
         self._patch_verify(monkeypatch)
@@ -450,12 +448,13 @@ class TestIntegrationsCommand:
             lambda: list(self._FAKE),
         )
 
-    def test_list_shows_non_mcp_services(self, monkeypatch: object) -> None:
+    def test_list_shows_all_services_including_github(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
         console, buf = _capture()
         dispatch_slash("/integrations list", ReplSession(), console)
-        assert "datadog" in buf.getvalue()
-        assert "github" not in buf.getvalue()
+        output = buf.getvalue()
+        assert "datadog" in output
+        assert "github" in output
 
     def test_list_is_default_when_no_subcommand(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
@@ -533,13 +532,29 @@ class TestIntegrationsCommand:
         dispatch_slash("/integrations setup", ReplSession(), Console())
         assert captured == [["integrations", "setup"]]
 
-    def test_remove_delegates_to_cli(self, monkeypatch: object) -> None:
+    def test_remove_uses_native_store_removal(self, monkeypatch: object) -> None:
+        import app.analytics.cli as analytics_cli
+        import app.integrations.store as store
         from app.cli.interactive_shell.command_registry import integrations as m
 
-        captured = []
-        monkeypatch.setattr(m, "run_cli_command", lambda _, args: (captured.append(args), True)[1])
+        removed: list[str] = []
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_: "yes")
+        monkeypatch.setattr(store, "remove_integration", lambda svc: (removed.append(svc), True)[1])
+        monkeypatch.setattr(analytics_cli, "capture_integration_removed", lambda *_: None)
         dispatch_slash("/integrations remove slack", ReplSession(), Console())
-        assert captured == [["integrations", "remove", "slack"]]
+        assert removed == ["slack"]
+
+    def test_remove_cancelled_does_not_touch_store(self, monkeypatch: object) -> None:
+        import app.integrations.store as store
+        from app.cli.interactive_shell.command_registry import integrations as m
+
+        removed: list[str] = []
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_: "no")
+        monkeypatch.setattr(store, "remove_integration", lambda svc: (removed.append(svc), True)[1])
+        dispatch_slash("/integrations remove slack", ReplSession(), Console())
+        assert removed == []
 
 
 class TestMcpCommand:
@@ -575,13 +590,18 @@ class TestMcpCommand:
         dispatch_slash("/mcp connect", ReplSession(), Console())
         assert captured == [["integrations", "setup"]]
 
-    def test_disconnect_delegates_to_cli(self, monkeypatch: object) -> None:
+    def test_disconnect_uses_native_store_removal(self, monkeypatch: object) -> None:
+        import app.analytics.cli as analytics_cli
+        import app.integrations.store as store
         from app.cli.interactive_shell.command_registry import integrations as m
 
-        captured = []
-        monkeypatch.setattr(m, "run_cli_command", lambda _, args: (captured.append(args), True)[1])
+        removed: list[str] = []
+        monkeypatch.setattr(m, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(m, "repl_choose_one", lambda **_: "yes")
+        monkeypatch.setattr(store, "remove_integration", lambda svc: (removed.append(svc), True)[1])
+        monkeypatch.setattr(analytics_cli, "capture_integration_removed", lambda *_: None)
         dispatch_slash("/mcp disconnect github", ReplSession(), Console())
-        assert captured == [["integrations", "remove", "github"]]
+        assert removed == ["github"]
 
     def test_unknown_subcommand(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)

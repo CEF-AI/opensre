@@ -16,7 +16,12 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import questionary
 
-from app.cli.interactive_shell.ui.theme import ANSI_BOLD, ANSI_DIM, ANSI_RESET
+from app.cli.interactive_shell.ui.theme import (
+    ANSI_BOLD,
+    ANSI_DIM,
+    ANSI_RESET,
+    DEVICE_CODE_ANSI,
+)
 
 if TYPE_CHECKING:
     from app.integrations.github_mcp import GitHubMcpDisplayDetailLevel
@@ -28,7 +33,12 @@ from app.integrations.posthog_mcp import (
     build_posthog_mcp_config,
     validate_posthog_mcp_config,
 )
-from app.integrations.registry import SUPPORTED_SETUP_SERVICES
+from app.integrations.registry import SUPPORTED_SETUP_SERVICES, resolve_management_service
+from app.integrations.sentry_mcp import (
+    DEFAULT_SENTRY_MCP_URL,
+    build_sentry_mcp_config,
+    validate_sentry_mcp_config,
+)
 from app.integrations.store import (
     STORE_PATH,
     get_integration,
@@ -371,7 +381,9 @@ def _github_browser_authorize() -> str | None:
         print()
         print(f"  1. Your browser will open {code.verification_uri}")
         print("     (if it doesn't open automatically, visit that URL yourself).")
-        print(f"  2. Enter this one-time code when GitHub asks: {_B}{code.user_code}{_R}")
+        print(
+            f"  2. Enter this one-time code when GitHub asks: {DEVICE_CODE_ANSI}{code.user_code}{_R}"
+        )
         print("  3. Approve the request for OpenSRE.")
         print()
         print(f"  {_DIM}Waiting for you to approve in the browser… (Ctrl-C to cancel){_R}")
@@ -549,6 +561,11 @@ def _setup_github() -> str | None:
             print(f"  {line}")
         sys.exit(1)
 
+    if result.authenticated_user:
+        # Persist the resolved GitHub login as a non-secret credential field so
+        # surfaces like the welcome banner can greet the user by their GitHub
+        # handle instead of the local system username.
+        credentials["username"] = result.authenticated_user
     upsert_integration("github", {"credentials": credentials})
     return result.authenticated_user
 
@@ -858,6 +875,45 @@ def _setup_posthog_mcp() -> None:
     print("    - opensre integrations verify posthog_mcp")
 
 
+def _setup_sentry_mcp() -> None:
+    print("  1) Streamable HTTP (recommended)  2) SSE  3) stdio (local server)")
+    choice = _p("Choice", default="1")
+    mode = {"1": "streamable-http", "2": "sse", "3": "stdio"}.get(choice, "streamable-http")
+
+    credentials: dict[str, Any] = {"mode": mode}
+    if mode == "stdio":
+        command = _p("Sentry MCP command", default="npx")
+        args = _p("Sentry MCP args", default="@sentry/mcp-server@latest")
+        if not command:
+            _die("command is required for stdio mode.")
+        credentials["command"] = command
+        credentials["args"] = [part for part in args.split() if part]
+        credentials["url"] = ""
+    else:
+        url = _p("Sentry MCP URL", default=DEFAULT_SENTRY_MCP_URL)
+        if not url:
+            _die("url is required for remote MCP modes.")
+        credentials["url"] = url
+        credentials["command"] = ""
+        credentials["args"] = []
+
+    credentials["auth_token"] = _p("Sentry user auth token", secret=True)
+    if mode != "stdio" and not credentials["auth_token"]:
+        _die("a user auth token is required for the hosted Sentry MCP server.")
+    credentials["host"] = _p("Self-hosted Sentry host (optional)", default="")
+
+    print("\n  Validating Sentry MCP...")
+    config = build_sentry_mcp_config(credentials)
+    result = validate_sentry_mcp_config(config)
+    print(f"  {result.detail}")
+    if not result.ok:
+        sys.exit(1)
+
+    upsert_integration("sentry_mcp", {"credentials": credentials})
+    print("  Next:")
+    print("    - opensre integrations verify sentry_mcp")
+
+
 def _setup_postgresql() -> None:
     host = _p("Host (e.g. localhost or postgres.example.com)")
     database = _p("Database name")
@@ -1131,6 +1187,7 @@ _HANDLERS: dict[str, Any] = {
     "twilio": _setup_twilio,
     "openclaw": _setup_openclaw,
     "posthog_mcp": _setup_posthog_mcp,
+    "sentry_mcp": _setup_sentry_mcp,
     "postgresql": _setup_postgresql,
     "mysql": _setup_mysql,
     "redis": _setup_redis,
@@ -1223,6 +1280,8 @@ def cmd_setup(service: str | None) -> str:
         except (EOFError, KeyboardInterrupt):
             print("\nAborted.")
             sys.exit(1)
+    if service:
+        service = resolve_management_service(service)
     if not service or service not in _SETUP_SERVICES:
         _die(f"Usage: setup <service>. Supported: {SUPPORTED}")
     print(f"\n  Setting up {_B}{service}{_R}\n")
@@ -1256,6 +1315,7 @@ def cmd_show(service: str | None) -> None:
     if not service:
         _die("Usage: show <service>")
         return
+    service = resolve_management_service(service)
     record = get_integration(service)
     if not record:
         _die(f"No active integration for '{service}'.")
@@ -1269,6 +1329,7 @@ def cmd_remove(service: str | None) -> None:
     if not service:
         _die("Usage: remove <service>")
         return
+    service = resolve_management_service(service)
     if not is_yes():
         try:
             confirmed = questionary.confirm(f"  Remove '{service}'?", default=False).ask()
@@ -1286,6 +1347,8 @@ def cmd_remove(service: str | None) -> None:
 def cmd_verify(service: str | None, *, send_slack_test: bool = False) -> int:
     from app.cli.support.context import is_json_output
 
+    if service:
+        service = resolve_management_service(service)
     if service and service not in SUPPORTED_VERIFY_SERVICES:
         _die(f"Usage: verify [service]. Supported: {SUPPORTED_VERIFY}")
 

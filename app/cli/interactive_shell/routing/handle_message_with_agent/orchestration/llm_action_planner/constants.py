@@ -1,54 +1,25 @@
-"""Shared constants and regexes for LLM action planning."""
+"""Shared constants for LLM action planning.
+
+The LLM action planner is the sole tool selector for non-command input: there is
+no regex-based intent inference. Tools are chosen purely from the system prompt
+below and the tool descriptions sent with each request, so keep both precise.
+"""
 
 from __future__ import annotations
 
-import re
-
 __all__ = (
-    "_LOCAL_LLAMA_CONNECT_RE",
-    "_RICH_PASTED_INCIDENT_LINE_RE",
-    "_INCIDENT_UPGRADE_SYMPTOM_RE",
-    "_HTTP_INCIDENT_PASTE_RE",
     "_MAX_TEXT_LEN",
     "_USER_TEMPLATE",
-    "_UNHANDLED_MARKER",
     "_OPENAI_STYLE_PROVIDERS",
     "_SYSTEM_PROMPT_BASE",
-    "is_rich_pasted_incident",
-)
-
-_LOCAL_LLAMA_CONNECT_RE = re.compile(
-    r"\b(?:please\s+)?(?:connect|use)\b.{0,40}\b(?:to\s+)?(?:local\s+)?llama\b",
-    re.IGNORECASE,
-)
-_RICH_PASTED_INCIDENT_LINE_RE = re.compile(
-    r"\b(?:service|region)\s*:",
-    re.IGNORECASE,
-)
-# Narrow upgrade symptoms: checkout/HTTP/database pastes should stay assistant handoff.
-_INCIDENT_UPGRADE_SYMPTOM_RE = re.compile(
-    r"\b(?:cpu|spiking|spike|pods?|firing)\b",
-    re.IGNORECASE,
-)
-_HTTP_INCIDENT_PASTE_RE = re.compile(
-    r"\b(?:checkout|5\d\d|http\s+\d{3}|returning\s+\d{3})\b",
-    re.IGNORECASE,
 )
 
 _MAX_TEXT_LEN = 512
 _USER_TEMPLATE = "USER MESSAGE (literal): <<<{text}>>>"
-_UNHANDLED_MARKER = "UNHANDLED:"
 
 _OPENAI_STYLE_PROVIDERS = frozenset(
     {"openai", "openrouter", "gemini", "nvidia", "minimax", "ollama"}
 )
-
-
-def is_rich_pasted_incident(text: str) -> bool:
-    """Return True for multiline incident pastes containing service/region keys."""
-    if "\n" not in text:
-        return False
-    return any(_RICH_PASTED_INCIDENT_LINE_RE.search(line) for line in text.splitlines())
 
 
 _SYSTEM_PROMPT_BASE = """You plan actions for the OpenSRE interactive shell.
@@ -58,11 +29,37 @@ launch, cancel, connect, switch, or start an operation. Compound requests
 joined by "and", "and then", "then", etc. should emit one tool call per
 component action, in the order requested.
 
-Interpret "kick off sample alert", "run sample alert", or "trigger sample alert"
-(including variants like "kick off a sample alert investigation") as the
-alert_sample tool with template="generic", not investigation_start.
+Interpret any request to run, try, start, launch, fire, send, trigger, or
+INVESTIGATE a "sample alert", "test alert", or "demo alert" — including
+phrasings like "investigate a sample test alert", "show me a sample alert", or
+"kick off a sample alert investigation" — as the alert_sample tool with
+template="generic". The noun phrase "sample/test/demo alert" means a built-in
+synthetic alert, so map it to alert_sample REGARDLESS of the verb: do NOT treat
+it as investigation_start (there is no real pasted alert) and do NOT hand it off
+to the assistant. A trailing "?" does not turn it into an informational
+question.
 If this appears as one clause in a compound request, still emit alert_sample
 for that clause in sequence.
+
+Alert payloads and incident descriptions vs. explicit investigations — decide
+carefully, this is a common error. The deciding factor is whether the user gave
+an explicit instruction to act, NOT whether alert/JSON content is present:
+- EXPLICIT investigate instruction → investigation_start. If the user tells you
+  to investigate, analyze, diagnose, root-cause, or RCA something — even when
+  the message also contains a pasted alert payload — emit investigation_start
+  with the alert text/payload as alert_text. Examples: 'investigate "<text>"',
+  'investigate this alert: {"alertname": "HighCPU"}', "RCA this", "why did the
+  orders job fail?". The presence of a JSON/alert blob does NOT downgrade an
+  explicit investigate instruction to a handoff.
+- NO explicit instruction → assistant_handoff. A message that is JUST an alert
+  or incident with no instruction — a pasted alert payload (JSON, YAML, or
+  key-value blob) on its own, or a bare incident description such as "CPU is
+  spiking to 99% on orders-api" or "checkout is returning 502s" — is NOT an
+  instruction to act. Emit assistant_handoff, even when it reads urgent or
+  "critical". Do NOT start an investigation for it.
+- When unsure whether a BARE alert/incident (no explicit instruction) should be
+  investigated or handed off, choose assistant_handoff. The user can always
+  follow up with an explicit "investigate this".
 
 If the user asks for a slash action and then asks to investigate/send quoted
 follow-up text (for example: connect with /remote and then investigate "hello world"),
@@ -93,7 +90,6 @@ Other tools:
 - code_implement — code implementation workflow
 - assistant_handoff — informational/conversational requests (docs, greetings,
   pasted alerts for analysis discussion, follow-ups, vague ops questions)
-- mark_unhandled — flag a clause that cannot be mapped (see below)
 
 Never use shell_run for OpenSRE product requests like "show integration details",
 "list connected services", "show model/provider", or docs/how-to questions.
@@ -101,26 +97,18 @@ Those are assistant_handoff or slash/cli operations, not shell diagnostics.
 Use shell_run only when the user explicitly asks for a local shell command
 (for example: backticks, command names, or "run command ...").
 
-If ANY clause in the user's request (clauses split by "and", "and then",
-"then", ",", or ";") is one of the following:
-- chatty filler ("sing a song", "tell me a joke", "make me coffee",
-  "say hi back", "wish me luck", "be nice", "compliment me", "rap")
-- nonsensical or off-topic (anything not related to SRE/observability/
-  infrastructure)
-- ambiguous (cannot be confidently mapped to an OpenSRE operation)
-- non-executable (a how-to question embedded in a compound prompt)
+Compound requests with a non-executable clause: emit a tool call for each
+clause you CAN map (slash/cli/sample-alert/investigation/etc.) and simply omit
+any clause that is chatty filler ("sing a song", "tell me a joke"), off-topic,
+ambiguous, or a how-to question embedded mid-prompt. There is no fail-closed
+denial: the executable clauses run and anything you cannot map is answered
+conversationally or ignored. Do not block the whole turn over one unmappable
+clause.
 
-… you MUST also call the mark_unhandled tool with a short reason
-describing the unmatched clause. Do this even when the other clause(s)
-are perfectly executable. Without it, the partially-handled prompt is
-silently treated as fully handled and the unmatched clause is dropped —
-a bug, not the desired behavior. NEVER silently drop a clause.
-
-Example: for the prompt "show me connected services and sing a song"
-you MUST emit EXACTLY two tool calls in the same response:
+Example: for the prompt "show me connected services and sing a song" emit a
+single tool call:
 1. slash_invoke (command="/integrations", args=["list"])
-2. mark_unhandled (reason="'sing a song' is chatty filler, not an
-   executable OpenSRE operation.")
+("sing a song" is chatty filler with no OpenSRE operation, so omit it.)
 
 Answering factual questions by running a read-only command: when the user asks
 a factual question about THIS session's current state that a read-only command
@@ -156,7 +144,10 @@ factual question about the current state that a read-only discovery command woul
 answer (handled in the discovery rule above): emit that discovery action instead.
 A pasted alert blob or incident description is NOT a discovery question — hand it
 off; do not start an investigation unless the user explicitly asks to investigate
-it. Do NOT respond with text-only "UNHANDLED:" output in this case — the planner
-only forwards actions emitted through tool calls, so plain text is silently
-dropped and the user sees a fail-closed prompt instead of the assistant's reply.
+it. When you hand the whole request off this way, emit ONLY the assistant_handoff
+call. An informational, diagnostic, troubleshooting, or investigation question
+(including "figure out why X" or "query sentry/github/posthog to find the cause")
+is FULLY handled by that single handoff. The planner only forwards actions emitted
+through tool calls, so always emit assistant_handoff rather than relying on
+plain-text output.
 """

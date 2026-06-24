@@ -428,7 +428,7 @@ class ReplSession:
                 generation = self._integration_warm_generation
 
         try:
-            from app.agent.stages.resolve_integrations import resolve_integrations_quiet
+            from app.core.orchestration.node.resolve_integrations import resolve_integrations_quiet
 
             resolved = resolve_integrations_quiet({})  # type: ignore[arg-type]
         except Exception:

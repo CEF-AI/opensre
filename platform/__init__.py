@@ -9,9 +9,40 @@ such as ``platform.analytics``.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import sysconfig
 from pathlib import Path
+
+# Directory (relative to ``sys._MEIPASS``) where the release build stages a copy
+# of the genuine stdlib ``platform.py``. PyInstaller does not lay out the stdlib
+# as loose ``.py`` files on disk, and this package shadows the ``platform`` name,
+# so the frozen binary cannot otherwise reach the real module. The release
+# workflow bundles it here; keep this constant in sync with that ``--add-data``
+# destination.
+_FROZEN_STDLIB_DIR = "_opensre_stdlib_platform"
+
+
+def _candidate_stdlib_platform_paths() -> list[Path]:
+    """Return the locations to probe for the genuine stdlib ``platform.py``."""
+    candidates: list[Path] = []
+
+    # Frozen builds (PyInstaller): a copy bundled into the extracted data tree.
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / _FROZEN_STDLIB_DIR / "platform.py")
+
+    # Regular source checkout / installed interpreter.
+    stdlib_dir = sysconfig.get_path("stdlib")
+    if stdlib_dir:
+        candidates.append(Path(stdlib_dir) / "platform.py")
+
+    # Last resort: sit next to another known stdlib module on disk.
+    os_file = getattr(os, "__file__", None)
+    if os_file:
+        candidates.append(Path(os_file).resolve().parent / "platform.py")
+
+    return candidates
 
 
 def _is_frozen() -> bool:
@@ -23,55 +54,25 @@ _REENTRANCY_GUARD = "_opensre_platform_loading"
 
 
 def _load_stdlib_platform():
-    """Load the stdlib ``platform`` module.
+    """Load the genuine stdlib ``platform`` module.
 
-    In frozen PyInstaller builds, the stdlib ``platform`` module is a
-    built-in/frozen module not available as a ``.py`` file. Handle both
-    frozen and non-frozen environments.
+    This package intentionally shadows the stdlib ``platform`` name, so the real
+    module is loaded directly from its source file. In frozen builds the stdlib
+    is not available as loose ``.py`` files, so the release build bundles a copy
+    that we load from ``sys._MEIPASS`` (see ``_FROZEN_STDLIB_DIR``).
     """
-    # In frozen builds, try importing the stdlib platform directly by
-    # temporarily removing our package from sys.modules.
-    if _is_frozen():
-        # Guard against re-entrant calls using a separate key so we
-        # don't shadow the real "platform" entry that importlib needs.
-        if sys.modules.get(_REENTRANCY_GUARD):
-            raise ImportError(
-                "Recursive platform load detected — stdlib platform "
-                "module is not available in this frozen bundle"
-            )
-
-        prev = sys.modules.pop("platform", None)
-        sys.modules[_REENTRANCY_GUARD] = True
-        try:
-            import platform as stdlib_platform
-
-            # If importlib resolved back to our own package (detected
-            # by the analytics subpackage attribute), the stdlib
-            # module is genuinely missing.
-            if hasattr(stdlib_platform, "analytics"):
-                raise ImportError("stdlib platform module not available in frozen bundle")
-            return stdlib_platform
-        finally:
-            sys.modules.pop(_REENTRANCY_GUARD, None)
-            # Always restore the original state.
-            sys.modules.pop("platform", None)
-            if prev is not None:
-                sys.modules["platform"] = prev
-
-    # Non-frozen: load from stdlib file path
-    stdlib_dir = sysconfig.get_path("stdlib")
-    if stdlib_dir is not None and (Path(stdlib_dir) / "platform.py").is_file():
-        stdlib_path = Path(stdlib_dir) / "platform.py"
+    candidates = _candidate_stdlib_platform_paths()
+    for stdlib_path in candidates:
+        if not stdlib_path.is_file():
+            continue
         spec = importlib.util.spec_from_file_location("_opensre_stdlib_platform", stdlib_path)
         if spec is not None and spec.loader is not None:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             return module
 
-    raise ImportError(
-        "Unable to load stdlib platform module — sysconfig path "
-        f"{stdlib_dir!r} does not contain platform.py"
-    )
+    checked = ", ".join(repr(str(path)) for path in candidates) or "<no candidate paths>"
+    raise ImportError(f"Unable to load stdlib platform module — checked: {checked}")
 
 
 _stdlib_platform = _load_stdlib_platform()

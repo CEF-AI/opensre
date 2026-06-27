@@ -13,9 +13,9 @@ from interactive_shell.harness.orchestration.agent_actions import (
     execute_cli_actions,
 )
 from interactive_shell.harness.turn_loop import (
+    AnswerAgent,
     ExecuteActions,
     GatherEvidence,
-    AnswerAgent,
     ShellTurnContext,
     ShellTurnDeps,
     ShellTurnResult,

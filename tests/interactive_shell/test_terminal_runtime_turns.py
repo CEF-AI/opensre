@@ -8,6 +8,7 @@ import pytest
 from rich.console import Console
 
 from core.runtime.llm.agent_llm_client import AgentLLMResponse, ToolCall
+from interactive_shell.harness.harness import handle_message_with_agent
 from interactive_shell.harness.orchestration.agent_actions import (
     TerminalActionExecutionResult,
 )
@@ -17,7 +18,6 @@ from interactive_shell.harness.orchestration.tools import (
 from interactive_shell.harness.orchestration.tools import (
     slash_tool as _slash_tool,
 )
-from interactive_shell.harness.harness import handle_message_with_agent
 from interactive_shell.harness.tests.orchestration.action_execution_test_harness import (
     FakeActionLLM,
 )

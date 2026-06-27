@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from interactive_shell.ui.components.time_format import _fmt_timing
 from interactive_shell.ui.output.environment import (
     _is_silent_output,
     _repl_progress_active,
@@ -20,7 +21,6 @@ from interactive_shell.ui.output.toggles import (
     toggle_active_tool_details,
 )
 from interactive_shell.ui.output.tool_tracking import ToolTrackingMixin
-from interactive_shell.ui.components.time_format import _fmt_timing
 
 
 def _EventLogDisplay(*args: Any, **kwargs: Any) -> DisplayProtocol:

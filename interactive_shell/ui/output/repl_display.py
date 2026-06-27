@@ -11,12 +11,12 @@ from typing import Any
 from rich.console import Console
 from rich.text import Text
 
+from interactive_shell.ui.components.time_format import _elapsed_hms
 from interactive_shell.ui.output.events import ProgressEvent
 from interactive_shell.ui.output.labels import (
     _node_phase_label,
     build_progress_step_text,
 )
-from interactive_shell.ui.components.time_format import _elapsed_hms
 from platform.terminal.theme import BRAND, DIM, SECONDARY
 
 _REPL_ANIM_FRAMES = ("·", "··", "···", "··")

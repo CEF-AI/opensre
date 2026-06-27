@@ -4,10 +4,10 @@ import io
 
 from rich.console import Console
 
+from interactive_shell.harness.harness import handle_message_with_agent
 from interactive_shell.harness.orchestration.agent_actions import (
     TerminalActionExecutionResult,
 )
-from interactive_shell.harness.harness import handle_message_with_agent
 from interactive_shell.runtime.core.session import ReplSession
 from interactive_shell.utils.telemetry import LlmRunInfo
 

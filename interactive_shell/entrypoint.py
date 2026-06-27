@@ -22,7 +22,9 @@ from interactive_shell.ui import input_prompt as _input_prompt
 from tools.fleet_monitoring.sweep import run_startup_sweep
 
 log = logging.getLogger(__name__)
-_console = Console(highlight=False, force_terminal=True, color_system="truecolor", legacy_windows=False)
+_console = Console(
+    highlight=False, force_terminal=True, color_system="truecolor", legacy_windows=False
+)
 
 
 @contextmanager

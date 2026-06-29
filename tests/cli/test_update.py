@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from cli.lifecycle.update import (
+    _extract_main_build_version,
+    _fetch_latest_version,
     _is_update_available,
     _upgrade_via_install_script,
     development_install_doctor_version_detail,
@@ -30,7 +32,7 @@ def test_check_only_returns_1_when_update_available(
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr(
         "cli.lifecycle.update._upgrade_via_install_script",
-        lambda _v: pytest.fail(),
+        lambda: pytest.fail(),
     )
 
     rc = run_update(check_only=True)
@@ -59,7 +61,7 @@ def test_update_install_script_success(
 ) -> None:
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 0)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 0)
 
     rc = run_update(yes=True)
 
@@ -73,7 +75,7 @@ def test_update_install_script_failure_shows_retry_hint(
 ) -> None:
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 1)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 1)
 
     rc = run_update(yes=True)
 
@@ -140,7 +142,7 @@ def test_binary_install_upgrades_via_install_script(
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr("cli.lifecycle.update._is_binary_install", lambda: True)
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 0)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 0)
 
     rc = run_update(yes=True)
 
@@ -156,7 +158,7 @@ def test_editable_install_prints_warning(
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr("cli.lifecycle.update._is_binary_install", lambda: False)
     monkeypatch.setattr("cli.lifecycle.update._is_editable_install", lambda: True)
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 0)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 0)
 
     rc = run_update(yes=True)
 
@@ -173,7 +175,7 @@ def test_install_script_failure_windows_shows_powershell_hint(
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr("cli.lifecycle.update._is_windows", lambda: True)
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 1)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 1)
 
     rc = run_update(yes=True)
 
@@ -188,7 +190,7 @@ def test_install_script_failure_unix_shows_curl_hint(
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr("cli.lifecycle.update._is_windows", lambda: False)
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 1)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 1)
 
     rc = run_update(yes=True)
 
@@ -196,40 +198,64 @@ def test_install_script_failure_unix_shows_curl_hint(
     assert "curl" in capsys.readouterr().err
 
 
-def test_update_prints_release_notes_url_after_success(
+def test_update_prints_main_build_url_after_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("cli.lifecycle.update.get_version", lambda: "1.0.0")
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", lambda: "1.2.3")
     monkeypatch.setattr("cli.lifecycle.update._is_binary_install", lambda: False)
-    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda _v: 0)
+    monkeypatch.setattr("cli.lifecycle.update._upgrade_via_install_script", lambda: 0)
 
     rc = run_update(yes=True)
 
     assert rc == 0
     out = capsys.readouterr().out
-    assert "release notes" in out
+    assert "main build release" in out
+    assert "main-build" in out
     assert "1.2.3" in out
 
 
-def test_upgrade_via_install_script_passes_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure _upgrade_via_install_script forwards the target version to the subprocess."""
-    captured_env: dict[str, str] = {}
+def test_upgrade_via_install_script_uses_main_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure _upgrade_via_install_script installs from the rolling main channel."""
+    captured_cmd: list[str] = []
 
     def fake_run(cmd: list[str], *, check: bool = False, env: dict[str, str] | None = None) -> type:
-        if env:
-            captured_env.update(env)
+        captured_cmd.extend(cmd)
         result = type("Result", (), {"returncode": 0})
         return result
 
     monkeypatch.setattr("cli.lifecycle.update.subprocess.run", fake_run)
     monkeypatch.setattr("cli.lifecycle.update._is_windows", lambda: False)
 
-    rc = _upgrade_via_install_script("2026.4.5")
+    rc = _upgrade_via_install_script()
 
     assert rc == 0
-    assert captured_env.get("OPENSRE_VERSION") == "2026.4.5"
+    assert captured_cmd == [
+        "bash",
+        "-c",
+        "curl -fsSL https://install.opensre.com | bash -s -- --main",
+    ]
+
+
+def test_extract_main_build_version_from_release_body() -> None:
+    body = "## Main build\n\n- Version: `0.1.2026.6.29+main.abc1234`\n- Commit: `abc1234`\n"
+    assert _extract_main_build_version(body) == "0.1.2026.6.29+main.abc1234"
+
+
+def test_fetch_latest_version_parses_main_build_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"body": "- Version: `0.1.2026.6.29+main.deadbeef`\n"}
+
+    monkeypatch.setattr("httpx.get", lambda *_args, **_kwargs: FakeResponse())
+
+    assert _fetch_latest_version() == "0.1.2026.6.29+main.deadbeef"
 
 
 def test_is_update_available_no_downgrade_local_version() -> None:
@@ -262,7 +288,7 @@ def test_development_install_doctor_detail_editable(
     monkeypatch.setattr("cli.lifecycle.update._is_editable_install", lambda: True)
     monkeypatch.delenv("UV_RUN_RECURSION_DEPTH", raising=False)
     detail = development_install_doctor_version_detail("2026.4.5")
-    assert detail == "2026.4.5 (editable install; skipped comparing to latest release)"
+    assert detail == "2026.4.5 (editable install; skipped comparing to latest main build)"
 
 
 def test_development_install_doctor_detail_uv_run(
@@ -271,7 +297,7 @@ def test_development_install_doctor_detail_uv_run(
     monkeypatch.setattr("cli.lifecycle.update._is_editable_install", lambda: False)
     monkeypatch.setenv("UV_RUN_RECURSION_DEPTH", "1")
     detail = development_install_doctor_version_detail("2026.4.5")
-    assert detail == "2026.4.5 (uv run; skipped comparing to latest release)"
+    assert detail == "2026.4.5 (uv run; skipped comparing to latest main build)"
 
 
 def test_development_install_doctor_detail_editable_and_uv_run(
@@ -280,4 +306,6 @@ def test_development_install_doctor_detail_editable_and_uv_run(
     monkeypatch.setattr("cli.lifecycle.update._is_editable_install", lambda: True)
     monkeypatch.setenv("UV_RUN_RECURSION_DEPTH", "1")
     detail = development_install_doctor_version_detail("2026.4.5")
-    assert detail == ("2026.4.5 (editable install + uv run; skipped comparing to latest release)")
+    assert detail == (
+        "2026.4.5 (editable install + uv run; skipped comparing to latest main build)"
+    )

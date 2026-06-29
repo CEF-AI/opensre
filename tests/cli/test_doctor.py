@@ -221,14 +221,14 @@ def test_check_version_freshness_skips_release_compare_for_local_dev(monkeypatch
     monkeypatch.setattr(doctor, "get_version", lambda: "1.2.3")
     monkeypatch.setattr(
         "cli.lifecycle.update.development_install_doctor_version_detail",
-        lambda c: f"{c} (editable install; skipped comparing to latest release)",
+        lambda c: f"{c} (editable install; skipped comparing to latest main build)",
     )
     monkeypatch.setattr("cli.lifecycle.update._fetch_latest_version", fetch_latest_version)
 
     ok, detail = doctor._check_version_freshness()
 
     assert ok is True
-    assert detail == "1.2.3 (editable install; skipped comparing to latest release)"
+    assert detail == "1.2.3 (editable install; skipped comparing to latest main build)"
     fetch_latest_version.assert_not_called()
 
 

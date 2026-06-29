@@ -1,26 +1,37 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 
 from config.version import PACKAGE_NAME, get_version
 
-_RELEASES_API = "https://api.github.com/repos/Tracer-Cloud/opensre/releases/latest"
+_MAIN_BUILD_RELEASE_API = (
+    "https://api.github.com/repos/Tracer-Cloud/opensre/releases/tags/main-build"
+)
 _INSTALL_SCRIPT = "https://install.opensre.com"
 _INSTALL_SCRIPT_PS1 = "https://install.opensre.com"
-_RELEASE_URL = "https://github.com/Tracer-Cloud/opensre/releases/tag/v{}"
+_MAIN_BUILD_RELEASE_URL = "https://github.com/Tracer-Cloud/opensre/releases/tag/main-build"
+_VERSION_FROM_RELEASE_BODY = re.compile(r"Version:\s*`([^`\n]+)`", re.IGNORECASE)
 
 
-def _releases_api_url() -> str:
-    return os.getenv("OPENSRE_RELEASES_API_URL", _RELEASES_API)
+def _main_build_release_api_url() -> str:
+    return os.getenv("OPENSRE_RELEASES_API_URL", _MAIN_BUILD_RELEASE_API)
+
+
+def _extract_main_build_version(release_body: str) -> str:
+    match = _VERSION_FROM_RELEASE_BODY.search(release_body)
+    if not match:
+        return ""
+    return match.group(1).strip()
 
 
 def _fetch_latest_version() -> str:
     import httpx
 
     try:
-        resp = httpx.get(_releases_api_url(), timeout=10, follow_redirects=True)
+        resp = httpx.get(_main_build_release_api_url(), timeout=10, follow_redirects=True)
         resp.raise_for_status()
     except httpx.TimeoutException as exc:
         raise RuntimeError("request timed out") from exc
@@ -33,8 +44,8 @@ def _fetch_latest_version() -> str:
             "could not connect to GitHub — check your network or HTTPS_PROXY settings"
         ) from exc
 
-    tag: str = resp.json().get("tag_name", "")
-    return tag.lstrip("v")
+    body = resp.json().get("body") or ""
+    return _extract_main_build_version(body)
 
 
 def _is_update_available(current: str, latest: str) -> bool:
@@ -75,7 +86,7 @@ def development_install_doctor_version_detail(current: str) -> str | None:
     """If this process looks like a local checkout, return the doctor line (skip release compare).
 
     Editable installs (`pip install -e` / ``uv sync`` on a git checkout) and ``uv run``
-    children set signals we use so ``opensre doctor`` does not warn vs GitHub releases.
+    children set signals we use so ``opensre doctor`` does not warn vs GitHub main builds.
     """
     labels: list[str] = []
     if _is_editable_install():
@@ -86,25 +97,28 @@ def development_install_doctor_version_detail(current: str) -> str | None:
     if not labels:
         return None
     ctx = " + ".join(labels)
-    return f"{current} ({ctx}; skipped comparing to latest release)"
+    return f"{current} ({ctx}; skipped comparing to latest main build)"
 
 
-def _upgrade_via_install_script(version: str) -> int:
-    """Download and run the official install script to upgrade to the target version."""
+def _upgrade_via_install_script() -> int:
+    """Download and run the official install script on the rolling main channel."""
     if _is_windows():
         result = subprocess.run(
             [
                 "powershell",
                 "-NoProfile",
                 "-Command",
-                f"$env:OPENSRE_VERSION='{version}'; irm {_INSTALL_SCRIPT_PS1} | iex",
+                (
+                    f"$env:OPENSRE_INSTALL_CHANNEL='main'; "
+                    f"Remove-Item Env:OPENSRE_VERSION -ErrorAction SilentlyContinue; "
+                    f"irm {_INSTALL_SCRIPT_PS1} | iex"
+                ),
             ],
             check=False,
         )
     else:
         result = subprocess.run(
-            ["bash", "-c", f"curl -fsSL {_INSTALL_SCRIPT} | bash"],
-            env={**os.environ, "OPENSRE_VERSION": version},
+            ["bash", "-c", f"curl -fsSL {_INSTALL_SCRIPT} | bash -s -- --main"],
             check=False,
         )
     return result.returncode
@@ -121,7 +135,10 @@ def run_update(*, check_only: bool = False, yes: bool = False) -> int:
         return 1
 
     if not latest:
-        print("  error: could not determine latest version from release data.", file=sys.stderr)
+        print(
+            "  error: could not determine latest main build version from release data.",
+            file=sys.stderr,
+        )
         return 1
 
     if not _is_update_available(current, latest):
@@ -130,21 +147,21 @@ def run_update(*, check_only: bool = False, yes: bool = False) -> int:
 
     print(f"  current: {current}")
     print(f"  latest:  {latest}")
-    print("  release: " + _RELEASE_URL.format(latest))
+    print("  main build: " + _MAIN_BUILD_RELEASE_URL)
 
     if check_only:
         return 1
 
     if _is_editable_install():
         print(
-            "  warning: this is an editable install — upgrading will replace it with a release build."
+            "  warning: this is an editable install — upgrading will replace it with a main build."
         )
 
     if not yes:
         try:
             import questionary
 
-            confirmed = questionary.confirm(f"  Update to {latest}?", default=True).ask()
+            confirmed = questionary.confirm(f"  Update to main build {latest}?", default=True).ask()
         except (EOFError, KeyboardInterrupt):
             print("\n  Aborted.")
             return 1
@@ -152,15 +169,15 @@ def run_update(*, check_only: bool = False, yes: bool = False) -> int:
             print("  Cancelled.")
             return 0
 
-    rc = _upgrade_via_install_script(latest)
+    rc = _upgrade_via_install_script()
     if rc == 0:
         print(f"  updated: {current} -> {latest}")
-        print("  release notes: " + _RELEASE_URL.format(latest))
+        print("  main build release: " + _MAIN_BUILD_RELEASE_URL)
     else:
         print(f"  install script failed (exit {rc}).", file=sys.stderr)
         if _is_windows():
-            hint = f'$env:OPENSRE_VERSION="{latest}"; irm {_INSTALL_SCRIPT_PS1} | iex'
+            hint = f"$env:OPENSRE_INSTALL_CHANNEL='main'; irm {_INSTALL_SCRIPT_PS1} | iex"
         else:
-            hint = f"curl -fsSL {_INSTALL_SCRIPT} | OPENSRE_VERSION={latest} bash"
+            hint = f"curl -fsSL {_INSTALL_SCRIPT} | bash -s -- --main"
         print(f"  to retry manually, run:\n    {hint}", file=sys.stderr)
     return rc

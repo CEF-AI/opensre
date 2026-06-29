@@ -40,7 +40,7 @@ def uninstall_command(local_yes: bool) -> None:
 )
 @click.option("--yes", "-y", "local_yes", is_flag=True, help="Skip the confirmation prompt.")
 def update_command(check_only: bool, local_yes: bool) -> None:
-    """Check for a newer version and update if one is available."""
+    """Check for a newer main build and update if one is available."""
     from cli.lifecycle.update import run_update
 
     capture_update_started(check_only=check_only)

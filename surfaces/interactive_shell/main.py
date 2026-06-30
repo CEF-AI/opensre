@@ -14,8 +14,8 @@ from surfaces.interactive_shell.runtime.startup.first_launch_github import (
     require_startup_github_login,
 )
 from surfaces.interactive_shell.runtime.startup.initial_input import run_initial_input
-from surfaces.interactive_shell.ui import render_banner
 from surfaces.interactive_shell.ui import input_prompt as _input_prompt
+from surfaces.interactive_shell.ui import render_banner
 from tools.fleet_monitoring.sweep import run_startup_sweep
 
 _console = Console(

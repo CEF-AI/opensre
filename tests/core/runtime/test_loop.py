@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import logging
 from collections.abc import Iterator
 from typing import Any, cast
@@ -169,6 +170,30 @@ def test_one_tool_round_then_final() -> None:
     assert result.messages[0].content == initial[0]["content"]
     assert isinstance(result.messages[2], ToolResultRuntimeMessage)
     assert llm.seen_messages[0] == initial
+
+
+def test_generic_tool_result_conversion_does_not_import_litellm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic/static clients should not pay LiteLLM's cold import cost."""
+    real_import = builtins.__import__
+
+    def guarded_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "core.llm.litellm.clients" or name.startswith("litellm"):
+            raise AssertionError(f"unexpected LiteLLM import: {name}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    llm = FakeLLM(iter(()))
+    call = ToolCall(id="c1", name="query_logs", input={})
+    message = ToolResultRuntimeMessage(tool_calls=(call,), results=({"ok": True},))
+
+    assert convert_to_llm_messages(llm, [message]) == [
+        {
+            "role": "tool",
+            "results": [{"id": "c1", "output": {"ok": True}}],
+        }
+    ]
 
 
 def test_agent_transcript_can_keep_app_messages_out_of_provider_context() -> None:

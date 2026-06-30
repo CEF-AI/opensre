@@ -18,6 +18,11 @@ from core.messages.runtime_message_types import (
 )
 
 
+def _is_litellm_agent_client(llm: Any) -> bool:
+    cls = type(llm)
+    return cls.__module__ == "core.llm.litellm.clients" and cls.__name__ == "LiteLLMAgentClient"
+
+
 def convert_to_llm_messages(llm: Any, messages: Sequence[RuntimeMessage]) -> list[ProviderMessage]:
     """Render runtime messages into provider-compatible message dictionaries."""
 
@@ -78,7 +83,6 @@ def build_synthetic_assistant_tool_call_message(
     This lets us inject pre-seeded tool results into the conversation in a format
     the LLM client already understands, without adding special-case handling.
     """
-    from core.llm.litellm.clients import LiteLLMAgentClient
     from core.llm.sdk.agent_clients import (
         AnthropicAgentClient,
         BedrockConverseAgentClient,
@@ -103,7 +107,7 @@ def build_synthetic_assistant_tool_call_message(
         ]
         return {"role": "assistant", "content": content}
 
-    if isinstance(llm, (OpenAIAgentClient, LiteLLMAgentClient)):
+    if isinstance(llm, OpenAIAgentClient) or _is_litellm_agent_client(llm):
         return {
             "role": "assistant",
             "content": None,
@@ -143,11 +147,10 @@ def build_tool_result_messages(
     tool_calls: list[ToolCall],
     results: list[Any],
 ) -> list[ProviderMessage]:
-    from core.llm.litellm.clients import LiteLLMAgentClient
     from core.llm.sdk.agent_clients import AnthropicAgentClient, OpenAIAgentClient
 
     if isinstance(llm, AnthropicAgentClient):
         return [cast("ProviderMessage", llm.build_tool_result_message(tool_calls, results))]
-    if isinstance(llm, (OpenAIAgentClient, LiteLLMAgentClient)):
+    if isinstance(llm, OpenAIAgentClient) or _is_litellm_agent_client(llm):
         return cast("list[ProviderMessage]", llm.build_tool_result_messages(tool_calls, results))
     return [cast("ProviderMessage", llm.build_tool_result_message(tool_calls, results))]

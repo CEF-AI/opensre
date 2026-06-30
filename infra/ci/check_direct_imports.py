@@ -50,51 +50,9 @@ _BASELINE_IGNORES: frozenset[str] = frozenset(
         # to be burned down by extracting shared runtime primitives out of
         # ``surfaces/interactive_shell/`` and into a layer below ``surfaces``.
         "gateway.storage.session.resolver -> surfaces.interactive_shell.runtime.context",
-        # Per-vendor integration tool packages still depend on shared tool
-        # primitives that live under ``tools/``: ``tools.base.BaseTool``
-        # (class-based vendors), ``tools.tool_decorator.tool`` (decorator-
-        # based vendors), and the payload helpers under ``tools.utils.*``.
-        # Burn down by moving these primitives to a lower layer (likely
-        # ``core/`` or ``platform/``) so vendor tools can import them
-        # without crossing into ``tools``.
-        "integrations.alertmanager.tools -> tools.base",
-        "integrations.argocd.tools -> tools.base",
-        "integrations.coralogix.tools -> tools.base",
-        "integrations.dagster.tools -> tools.tool_decorator",
-        "integrations.datadog.tools -> tools.tool_decorator",
-        "integrations.datadog.tools -> tools.utils.availability",
-        "integrations.datadog.tools -> tools.utils.compaction",
-        "integrations.eks.tools -> tools._telemetry",
-        "integrations.eks.tools -> tools.tool_decorator",
-        "integrations.eks.tools -> tools.utils.availability",
-        "integrations.eks.tools -> tools.utils.eks_workload_helper",
-        "integrations.elasticsearch.tools -> tools.base",
-        "integrations.elasticsearch.tools -> tools.utils.compaction",
-        "integrations.google_docs.tools -> tools._telemetry",
-        "integrations.google_docs.tools -> tools.tool_decorator",
-        "integrations.grafana.tools -> tools.tool_decorator",
-        "integrations.groundcover.tools -> tools.tool_decorator",
-        "integrations.groundcover.tools -> tools.utils.availability",
-        "integrations.groundcover.tools -> tools.utils.groundcover",
-        "integrations.helm.tools -> tools.base",
-        "integrations.helm.tools -> tools.utils.helm_tools",
-        "integrations.honeycomb.tools -> tools.base",
-        "integrations.incident_io.tools -> tools.base",
-        "integrations.jenkins.tools -> tools.tool_decorator",
-        "integrations.jira.tools -> tools.base",
-        "integrations.opsgenie.tools -> tools.base",
-        "integrations.pagerduty.tools -> tools.base",
-        "integrations.prefect.tools -> tools.base",
-        "integrations.signoz.tools -> tools.tool_decorator",
-        "integrations.signoz.tools -> tools.utils.availability",
-        "integrations.signoz.tools -> tools.utils.compaction",
-        "integrations.splunk.tools -> tools.base",
-        "integrations.splunk.tools -> tools.utils.compaction",
-        "integrations.tempo.tools -> tools.tool_decorator",
-        "integrations.tempo.tools -> tools.utils.availability",
-        "integrations.temporal.tools -> tools.base",
-        "integrations.vercel.tools -> tools.base",
-        "integrations.victoria_logs.tools -> tools.base",
+        # Telegram delivery reuses the watch-dog alarm dispatch primitive
+        # (same lineage as the Hermes Telegram sink below).
+        "integrations.telegram.tools.telegram_send_message_tool.delivery -> tools.watch_dog.alarms",
         # Hermes Telegram sink reuses watch-dog alarm dispatch (#1500 refactor).
         "integrations.hermes.sinks -> tools.watch_dog.alarms",
         # Integration setup UX still reaches into the CLI wizard.

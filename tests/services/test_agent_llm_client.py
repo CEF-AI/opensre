@@ -756,6 +756,42 @@ def test_get_agent_llm_routes_deepseek_to_openai_compatible_client(
     assert captured["api_key_env"] == "DEEPSEEK_API_KEY"
 
 
+def test_get_agent_llm_routes_ddcdragon_to_wrapped_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import agent_llm_client as alc
+
+    captured: dict[str, object] = {}
+
+    class _FakeDdcDragonAgentClient:
+        def __init__(
+            self,
+            *,
+            endpoint: str,
+            bucket: int,
+            name: str,
+            version: str,
+            max_tokens: int = 2048,  # noqa: ARG002 - matches real client signature
+        ) -> None:
+            captured.update(
+                {"endpoint": endpoint, "bucket": bucket, "name": name, "version": version}
+            )
+
+    monkeypatch.setattr(alc, "DdcDragonAgentClient", _FakeDdcDragonAgentClient)
+    monkeypatch.setenv("LLM_PROVIDER", "ddcdragon")  # keyless
+    monkeypatch.setenv("DDCDRAGON_MODEL", "gemma4_31b")
+    monkeypatch.setenv("DDCDRAGON_BUCKET", "1338")
+
+    alc.reset_agent_client()
+    client = alc.get_agent_llm()
+
+    assert isinstance(client, _FakeDdcDragonAgentClient)
+    assert captured["name"] == "gemma4_31b"
+    assert captured["bucket"] == 1338  # coerced to int
+    assert "ddcdragon.com" in str(captured["endpoint"])
+    alc.reset_agent_client()
+
+
 @pytest.mark.parametrize(
     "provider",
     [

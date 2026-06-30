@@ -343,19 +343,35 @@ def _resolve_evidence_tags(text: str, evidence: dict) -> str:
     return re.sub(r"\s*\[(?i:evidence):\s*([^\]]+)\]", _replace, text).strip()
 
 
+_ERROR_LOG_MARKERS = ("error", "failed", "fail ", "❌", "panic", "exception", "fatal", "unable")
+# Pre-filtered error-log sources: their first entry is already the relevant error.
+_ERROR_LOG_KEYS = ("datadog_error_logs", "grafana_error_logs")
+# General log sources: must be scanned for an error-looking line, never taken blindly —
+# logs[0] is often an unrelated TRACE/INFO line (e.g. election-provider heartbeat).
+_GENERAL_LOG_KEYS = ("datadog_logs", "grafana_logs", "cloudwatch_logs")
+
+
+def _looks_like_error(message: str) -> bool:
+    return any(marker in message.lower() for marker in _ERROR_LOG_MARKERS)
+
+
 def _get_top_error_log(evidence: dict) -> str | None:
-    """Return the first error log message from available evidence sources."""
-    for key in (
-        "datadog_error_logs",
-        "datadog_logs",
-        "grafana_error_logs",
-        "grafana_logs",
-        "cloudwatch_logs",
-    ):
+    """Return the most relevant error log message, or None.
+
+    Pre-filtered error sources contribute their first entry directly. General log
+    sources are scanned for an error-looking line; if none is found we return None
+    rather than surfacing an arbitrary (often unrelated) first log line in the report.
+    """
+    for key in _ERROR_LOG_KEYS:
         logs = evidence.get(key) or []
         if logs:
             msg = _extract_log_message(logs[0])
             if msg:
+                return msg
+    for key in _GENERAL_LOG_KEYS:
+        for entry in evidence.get(key) or []:
+            msg = _extract_log_message(entry)
+            if msg and _looks_like_error(msg):
                 return msg
     return None
 

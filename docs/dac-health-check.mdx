@@ -1,0 +1,62 @@
+---
+title: DAC pipeline health
+description: Agent tools that check the Cere DAC pipeline end-to-end (Collection → Aggregation → Inspection → Payout) and supply DAC domain knowledge during an investigation.
+---
+
+OpenSRE ships two tools the investigation agent uses to reason about the Cere DAC
+pipeline (**Collection → Aggregation → Inspection → Payout**). The agent calls them
+during an investigation — you don't write any queries.
+
+## Tools
+
+| Tool | What it does |
+| --- | --- |
+| `dac_health_check` | Reads DAC health signals from Grafana and returns a per-dimension snapshot with green/amber/red status |
+| `get_dac_guidance` | Returns DAC domain knowledge (pipeline stages, timing budgets, failure modes) to interpret the signals |
+
+## `dac_health_check`
+
+The agent selects *which* dimension to check (or `all`); the query and thresholds
+are built in, so it never authors PromQL/LogQL.
+
+| `check` | Dimension | Healthy means |
+| --- | --- | --- |
+| `inflow` | Collection | Activity records are still being produced |
+| `aggregation` | Aggregation | Per-minute (TCA) build latency is within its ~1m budget |
+| `era_report` | Era report (EHD) | An era report is produced each era, on time |
+| `inspector_participation` | Inspection | Enough validators inspect each era |
+| `payout` | Payout | Settlement keeps stepping |
+| `all` (default) | — | All of the above |
+
+It returns each dimension's observed value, unit, and a deterministic
+`green`/`amber`/`red` status plus an `overall_status`, e.g.:
+
+```json
+{
+  "source": "dac_health", "available": true, "env": "testnet",
+  "overall_status": "green",
+  "dimensions": [
+    {"key": "inflow", "stage": "Collection", "value": 109.0, "unit": "records/min", "status": "green"},
+    {"key": "inspectors", "stage": "Inspection", "value": 6.0, "unit": "validators", "status": "green"}
+  ]
+}
+```
+
+## Setup
+
+`dac_health_check` reads from your Grafana integration (auto-discovers the
+`ddc-prometheus` and `ddc-logs` datasources). Configure Grafana once:
+
+```bash
+opensre integrations setup grafana   # endpoint https://dashboards.cere.io + a read-only glsa_ token
+```
+
+`env` defaults to `testnet`; pass `mainnet` or `devnet` to target another network.
+
+## How it fits an investigation
+
+When a DAC alert reaches OpenSRE (e.g. a Grafana alert routed to the
+[gateway](/deployment)), the agent calls `dac_health_check` to gather the current
+signals and `get_dac_guidance` to interpret them, then produces a root-cause
+analysis and delivers it to your configured channel. To bias the agent toward
+the Grafana-backed tools, set `context_sources: grafana` on the alert's annotations.

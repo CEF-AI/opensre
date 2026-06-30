@@ -636,6 +636,89 @@ class OpenAIAgentClient:
         return msg
 
 
+class DdcDragonAgentClient(OpenAIAgentClient):
+    """Agent client for the DDC Dragon wrapped inference API (e.g. gemma4_31b).
+
+    The API is OpenAI-shaped for messages/tools/tool_calls but wrapped in a
+    ``{model:{bucket,name,version}, input:{messages,tools,...}}`` request and a
+    ``{output:{text, tool_calls}}`` response, so it can't use the OpenAI SDK.
+    We inherit the OpenAI-style tool schemas + message builders and override
+    only the transport (``__init__``/``invoke``). Keyless.
+    """
+
+    provider_name = "DdcDragon"
+
+    def __init__(  # noqa: D107 — intentionally does not call super().__init__ (no OpenAI client)
+        self,
+        *,
+        endpoint: str,
+        bucket: int,
+        name: str,
+        version: str,
+        max_tokens: int = 2048,
+    ) -> None:
+        self._endpoint = endpoint
+        self._bucket = bucket
+        self._name = name
+        self._version = version
+        self._max_tokens = max_tokens
+
+    def invoke(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AgentLLMResponse:
+        import requests
+
+        msgs = list(messages)
+        if system:
+            msgs = [{"role": "system", "content": system}, *msgs]
+        payload: dict[str, Any] = {
+            "model": {"bucket": self._bucket, "name": self._name, "version": self._version},
+            "input": {"messages": msgs, "max_tokens": self._max_tokens, "temperature": 0},
+        }
+        if tools:
+            payload["input"]["tools"] = tools
+
+        backoff = _RETRY_INITIAL_BACKOFF_SEC
+        last_err: Exception | None = None
+        out: dict[str, Any] = {}
+        for attempt in range(_RETRY_MAX_ATTEMPTS):
+            try:
+                resp = requests.post(self._endpoint, json=payload, timeout=_CLIENT_TIMEOUT_SEC)
+                resp.raise_for_status()
+                out = resp.json().get("output", {}) or {}
+                break
+            except Exception as err:
+                last_err = err
+                if attempt == _RETRY_MAX_ATTEMPTS - 1:
+                    raise RuntimeError(f"DDC Dragon inference failed: {err}") from err
+                time.sleep(backoff)
+                backoff *= 2
+        else:  # pragma: no cover - loop always breaks or raises
+            raise RuntimeError("DDC Dragon invocation failed") from last_err
+
+        content = out.get("text") or ""
+        tool_calls: list[ToolCall] = []
+        for tc in out.get("tool_calls") or []:
+            fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append(
+                ToolCall(id=str(tc.get("id") or ""), name=str(fn.get("name") or ""), input=args)
+            )
+        return AgentLLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            stop_reason="tool_use" if tool_calls else "end_turn",
+            raw_content=None,
+        )
+
+
 def _get_cli_provider_registration(provider: str) -> Any:
     """Return the CLI registry entry for *provider*, or None if not CLI-backed."""
     from app.integrations.llm_cli.registry import get_cli_provider_registration
@@ -828,6 +911,16 @@ def get_agent_llm() -> _AgentClientType:
     elif provider in ("openrouter", "deepseek", "gemini", "nvidia", "minimax", "groq", "ollama"):
         # All OpenAI-compatible providers
         _agent_client = _create_openai_compat_client(settings, provider)
+    elif provider == "ddcdragon":
+        from app.config import DDCDRAGON_LLM_CONFIG
+
+        _agent_client = DdcDragonAgentClient(
+            endpoint=settings.ddcdragon_endpoint,
+            bucket=settings.ddcdragon_bucket,
+            name=settings.ddcdragon_model,
+            version=settings.ddcdragon_version,
+            max_tokens=DDCDRAGON_LLM_CONFIG.max_tokens,
+        )
     elif provider == "bedrock":
         from app.config import BEDROCK_LLM_CONFIG
         from app.services.llm_client import _is_anthropic_bedrock_model

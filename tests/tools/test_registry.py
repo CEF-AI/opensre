@@ -498,6 +498,48 @@ def test_v2_registry_injected_params_are_hidden_from_public_schema() -> None:
             )
 
 
+def test_sanitize_public_input_drops_injected_and_null_optionals() -> None:
+    module: Any = ModuleType("app.tools.fake_sanitize_tool")
+
+    @tool(
+        name="probe_thing",
+        description="Probe a thing for sanitize testing.",
+        source="knowledge",
+        injected_params=("api_key",),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "target": {"type": "string"},
+                "scope": {"type": "string"},
+                "api_key": {"type": "string"},
+            },
+            "required": ["target"],
+        },
+    )
+    def probe_thing(target: str, scope: str | None = None, api_key: str = "") -> dict[str, object]:
+        return {"target": target, "scope": scope}
+
+    probe_thing.__module__ = module.__name__
+    module.probe_thing = probe_thing
+    registered = registry_module._collect_registered_tools_from_module(module)[0]
+
+    # Model copied an injected cred and passed null for an optional it deemed N/A.
+    raw = {"target": "x", "scope": None, "api_key": "leaked"}
+    assert registered.validate_public_input(raw) is not None  # would have errored before sanitize
+    clean = registered.sanitize_public_input(raw)
+    assert clean == {"target": "x"}  # injected dropped, null-optional dropped, required kept
+    assert registered.validate_public_input(clean) is None
+
+    # A blank/empty value for a *required* field is treated as "not provided", so
+    # it surfaces as a clean "missing required" error rather than running downstream
+    # with an empty value (e.g. service_name="" -> Loki 400).
+    for blank in (None, "", "   "):
+        cleaned = registered.sanitize_public_input({"target": blank})
+        assert "target" not in cleaned
+        err = registered.validate_public_input(cleaned)
+        assert err is not None and "missing required args: target" in err
+
+
 def test_v2_registry_tools_define_output_schema() -> None:
     for tool_def in _v2_tools():
         output_schema = tool_def.output_schema

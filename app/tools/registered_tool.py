@@ -296,6 +296,35 @@ class RegisteredTool:
             schema["required"] = [name for name in required if name not in self.injected_params]
         return schema
 
+    def sanitize_public_input(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Normalize model-provided input before validation/execution.
+
+        Models commonly (a) pass ``null`` (or an empty/whitespace string) for a
+        field they consider not applicable, and (b) copy an injected credential
+        param they saw on a sibling tool. Both are harmless intent but trip
+        strict validation or fail downstream, so we drop them:
+        - keys in ``injected_params`` (the runtime injects these; the model must not),
+        - "blank" values — ``None`` or an empty/whitespace-only string.
+
+        Dropping a blank value means an *optional* field is simply omitted (the tool
+        uses its default), while a *required* one now surfaces as a clean
+        "missing required args" error the agent can recover from — instead of the
+        tool running with an empty value and failing downstream (e.g. a Loki 400).
+        Genuine unknown args still surface as errors.
+        """
+        if not isinstance(payload, dict):
+            return payload
+        injected = set(self.injected_params)
+
+        def _is_blank(value: Any) -> bool:
+            return value is None or (isinstance(value, str) and not value.strip())
+
+        return {
+            key: value
+            for key, value in payload.items()
+            if key not in injected and not _is_blank(value)
+        }
+
     def validate_public_input(self, payload: dict[str, Any]) -> str | None:
         """Validate model-provided input against this tool's public schema."""
         schema = self.public_input_schema

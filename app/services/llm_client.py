@@ -1107,6 +1107,72 @@ class OpenAILLMClient:
                 backoff_seconds *= 2
 
 
+class DdcDragonLLMClient(OpenAILLMClient):
+    """Non-agent LLM client for the DDC Dragon wrapped inference API (keyless).
+
+    Reuses OpenAILLMClient's message normalization, ``with_structured_output``
+    (which is prompt-based — it embeds the JSON schema and parses the text reply,
+    so no special API support is needed) and ``bind_tools``; only the transport
+    is overridden to speak the ``{model, input}`` -> ``{output:{text}}`` envelope.
+    """
+
+    def __init__(
+        self, *, endpoint: str, bucket: int, name: str, version: str, max_tokens: int = 1024
+    ) -> None:
+        self._endpoint = endpoint
+        self._bucket = bucket
+        self._name = name
+        self._version = version
+        self._max_tokens = max_tokens
+        self._model = name
+        self._bound_tools = []
+
+    def invoke(self, prompt_or_messages: Any) -> LLMResponse:
+        import requests
+
+        messages = _normalize_messages_openai(prompt_or_messages)
+        from app.guardrails.apply import apply_guardrails_to_messages
+
+        messages, _ = apply_guardrails_to_messages(messages)
+
+        payload: dict[str, Any] = {
+            "model": {"bucket": self._bucket, "name": self._name, "version": self._version},
+            "input": {"messages": messages, "max_tokens": self._max_tokens, "temperature": 0},
+        }
+        if self._bound_tools:
+            payload["input"]["tools"] = self._bound_tools
+
+        backoff_seconds = _RETRY_INITIAL_BACKOFF_SEC
+        last_err: Exception | None = None
+        out: dict[str, Any] = {}
+        for attempt in range(_RETRY_MAX_ATTEMPTS):
+            try:
+                resp = requests.post(self._endpoint, json=payload, timeout=_CLIENT_TIMEOUT_SEC)
+                resp.raise_for_status()
+                out = resp.json().get("output", {}) or {}
+                break
+            except Exception as err:
+                last_err = err
+                if attempt == _RETRY_MAX_ATTEMPTS - 1:
+                    raise RuntimeError(f"DDC Dragon inference failed: {err}") from err
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
+        else:  # pragma: no cover
+            raise RuntimeError("DDC Dragon invocation failed") from last_err
+
+        content = (out.get("text") or "").strip()
+        usage = out.get("usage") or {}
+        return LLMResponse(
+            content=content,
+            input_tokens=usage.get("inputTokens"),
+            output_tokens=usage.get("outputTokens"),
+        )
+
+    def invoke_stream(self, prompt_or_messages: Any) -> Iterator[str]:
+        # No native streaming on the wrapped API — emit the full reply once.
+        yield self.invoke(prompt_or_messages).content
+
+
 class StructuredOutputClient:
     """Wraps any LLM client with `.invoke` (API or CLI subprocess) for Pydantic JSON parsing."""
 
@@ -1383,6 +1449,17 @@ def _create_llm_client(model_type: ModelType) -> _LLMClientType:
             base_url=f"{host}/v1",
             api_key_env="OLLAMA_API_KEY",
             api_key_default="ollama",
+        )
+    elif provider == "ddcdragon":
+        from app.config import DDCDRAGON_LLM_CONFIG
+
+        # Single wrapped-API model regardless of tier (keyless).
+        return DdcDragonLLMClient(
+            endpoint=settings.ddcdragon_endpoint,
+            bucket=settings.ddcdragon_bucket,
+            name=settings.ddcdragon_model,
+            version=settings.ddcdragon_version,
+            max_tokens=DDCDRAGON_LLM_CONFIG.max_tokens,
         )
     elif provider == "bedrock":
         from app.config import BEDROCK_LLM_CONFIG

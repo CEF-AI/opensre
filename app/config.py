@@ -151,6 +151,13 @@ BEDROCK_TOOLCALL_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 DEFAULT_OLLAMA_MODEL = "llama3.2"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 
+# DDC Dragon decentralized inference network (custom wrapped inference API).
+# Override via DDCDRAGON_BASE_URL / DDCDRAGON_MODEL / DDCDRAGON_BUCKET / DDCDRAGON_VERSION.
+DDCDRAGON_BASE_URL = "https://orchestrator.compute.test.ddcdragon.com/api/v1/inference"
+DDCDRAGON_MODEL = "gemma4_31b"
+DDCDRAGON_BUCKET = 1338
+DDCDRAGON_VERSION = "v1.0.0"
+
 LLMProvider = Literal[
     "anthropic",
     "openai",
@@ -159,6 +166,7 @@ LLMProvider = Literal[
     "gemini",
     "nvidia",
     "ollama",
+    "ddcdragon",
     "bedrock",
     "minimax",
     "groq",
@@ -176,6 +184,7 @@ LLMProvider = Literal[
 KEYLESS_LLM_PROVIDERS = frozenset(
     {
         "ollama",
+        "ddcdragon",
         "bedrock",
         "codex",
         "cursor",
@@ -360,6 +369,12 @@ def _llm_settings_env_payload(provider: str) -> dict[str, object]:
         "ollama_model": os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL).strip()
         or DEFAULT_OLLAMA_MODEL,
         "ollama_host": os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST).strip() or DEFAULT_OLLAMA_HOST,
+        "ddcdragon_endpoint": os.getenv("DDCDRAGON_BASE_URL", DDCDRAGON_BASE_URL).strip()
+        or DDCDRAGON_BASE_URL,
+        "ddcdragon_model": os.getenv("DDCDRAGON_MODEL", DDCDRAGON_MODEL).strip() or DDCDRAGON_MODEL,
+        "ddcdragon_bucket": int(os.getenv("DDCDRAGON_BUCKET", "").strip() or DDCDRAGON_BUCKET),
+        "ddcdragon_version": os.getenv("DDCDRAGON_VERSION", DDCDRAGON_VERSION).strip()
+        or DDCDRAGON_VERSION,
         "max_tokens": os.getenv("LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)),
     }
 
@@ -391,6 +406,10 @@ class LLMSettings(StrictConfigModel):
     groq_api_key: str = ""
     ollama_model: str = DEFAULT_OLLAMA_MODEL
     ollama_host: str = DEFAULT_OLLAMA_HOST
+    ddcdragon_endpoint: str = DDCDRAGON_BASE_URL
+    ddcdragon_model: str = DDCDRAGON_MODEL
+    ddcdragon_bucket: int = DDCDRAGON_BUCKET
+    ddcdragon_version: str = DDCDRAGON_VERSION
     anthropic_reasoning_model: str = ANTHROPIC_REASONING_MODEL
     anthropic_classification_model: str = ANTHROPIC_CLASSIFICATION_MODEL
     anthropic_toolcall_model: str = ANTHROPIC_TOOLCALL_MODEL
@@ -440,6 +459,7 @@ class LLMSettings(StrictConfigModel):
             "gemini",
             "nvidia",
             "ollama",
+            "ddcdragon",
             "bedrock",
             "minimax",
             "groq",
@@ -786,6 +806,13 @@ OLLAMA_LLM_CONFIG = LLMModelConfig(
     reasoning_model=DEFAULT_OLLAMA_MODEL,
     classification_model=DEFAULT_OLLAMA_MODEL,
     toolcall_model=DEFAULT_OLLAMA_MODEL,
+    max_tokens=DEFAULT_MAX_TOKENS,
+)
+
+DDCDRAGON_LLM_CONFIG = LLMModelConfig(
+    reasoning_model=DDCDRAGON_MODEL,
+    classification_model=DDCDRAGON_MODEL,
+    toolcall_model=DDCDRAGON_MODEL,
     max_tokens=DEFAULT_MAX_TOKENS,
 )
 

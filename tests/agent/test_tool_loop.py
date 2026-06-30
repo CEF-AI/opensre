@@ -63,6 +63,9 @@ class FakeTool:
         self.name = name
         self._output = output if output is not None else {"ok": True}
 
+    def sanitize_public_input(self, value: dict[str, Any]) -> dict[str, Any]:
+        return value
+
     def validate_public_input(self, value: dict[str, Any]) -> str | None:  # noqa: ARG002
         return None
 

@@ -29,11 +29,12 @@ def _run_parallel(
         if tool is None:
             return {"error": f"unknown tool: {tc.name}"}
         try:
-            validation_error = tool.validate_public_input(tc.input)
+            clean_input = tool.sanitize_public_input(tc.input)
+            validation_error = tool.validate_public_input(clean_input)
             if validation_error:
                 return {"error": validation_error}
             injected = tool.extract_params(resolved_integrations)
-            kwargs = {**injected, **tc.input}
+            kwargs = {**injected, **clean_input}
             return tool.run(**kwargs)
         except Exception as exc:
             logger.warning("[tool:%s] failed: %s", tc.name, exc)

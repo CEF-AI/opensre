@@ -43,6 +43,7 @@
               "interactive-shell-commands",
               "interactive-shell-assistant",
               "deployment",
+              "dac-health-check",
               "faq"
             ]
           },

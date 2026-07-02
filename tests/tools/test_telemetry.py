@@ -743,8 +743,27 @@ def _cef_agent_logs_case() -> ToolFailureCase:
     return ToolFailureCase("cef_agent_logs", patch, invoke, "cef_agent_logs", "cef")
 
 
+def _cef_component_logs_case() -> ToolFailureCase:
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from app.tools import CefComponentLogsTool as mod
+
+        mp.setattr(
+            mod,
+            "get_grafana_client_from_credentials",
+            MagicMock(side_effect=RuntimeError("grafana down")),
+        )
+
+    def invoke() -> dict[str, Any]:
+        from app.tools.CefComponentLogsTool import cef_component_logs
+
+        return cef_component_logs(service="orchestrator", grafana_endpoint="https://x")
+
+    return ToolFailureCase("cef_component_logs", patch, invoke, "cef_component_logs", "cef")
+
+
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
     _cef_agent_logs_case(),
+    _cef_component_logs_case(),
     _azure_case(),
     _openobserve_case(),
     _snowflake_case(),
@@ -935,6 +954,8 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
     {
         # CEF agent-log retrieval — reports the wallet-load swallow site.
         "cef_agent_logs",
+        # CEF component-log retrieval — reports the Loki query swallow site.
+        "cef_component_logs",
         # HTTP / cloud sites from #1463
         "query_azure_monitor_logs",
         "query_openobserve_logs",

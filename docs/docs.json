@@ -122,6 +122,7 @@
               "azure-monitor",
               "betterstack",
               "cef-agent-logs",
+              "cef-component-logs",
               "coralogix",
               "datadog",
               "grafana",

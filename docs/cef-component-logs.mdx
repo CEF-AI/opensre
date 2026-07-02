@@ -1,0 +1,43 @@
+---
+title: CEF component logs
+description: Retrieve CEF platform-component logs (orchestrator, s3-gateway, runtime, …) from Grafana Loki.
+---
+
+The **CEF component logs** tool (`cef_component_logs`) retrieves logs from the CEF *platform
+components* — the orchestrator, the DDC S3 gateway, the agent runtime, and the vault/messaging
+services — from Grafana Loki. It is the infrastructure counterpart to
+[CEF agent logs](/cef-agent-logs): where that reads an agent run's own `ctx.log`, this reads the
+platform logs that explain *why* a step failed (for example, the orchestrator reporting that an
+inference model has no healthy nodes, or the S3 gateway returning a 5xx for an audio fetch).
+
+The tool owns the CEF log **topology** — which Loki namespace, cluster, and `service_name` each
+component uses — so you never write LogQL. It returns raw log lines for the agent to analyse; it
+does not interpret them.
+
+## Retrieve logs for a component
+
+| Parameter | Purpose |
+| --- | --- |
+| `service` | One of `orchestrator`, `agent-runtime`, `vault-api`, `nats`, `cef-core`, `ddc-s3-gateway`. |
+| `time_range_minutes` | Lookback window from now (default 60). |
+| `contains` | Optional literal substring the line must contain (e.g. `inference failed`). |
+| `level` | Optional log level to match (e.g. `error`). |
+| `limit` | Max lines to return (default 100). |
+
+The response includes `logs` (raw lines), `count`, the `query` that ran, and `truncated: true`
+when results hit `limit` — so you know whether you saw everything.
+
+## Configuration
+
+Reuses the `grafana` integration credentials (`endpoint` + service-account token). The CEF
+`cluster` (e.g. `dragon1-testnet`) comes from the `cef` integration config (defaults to
+`dragon1-testnet`).
+
+## Example
+
+- `cef_component_logs(service="orchestrator", contains="inference failed", time_range_minutes=90)`
+  → the orchestrator's inference-dispatch failures in the window.
+- `cef_component_logs(service="ddc-s3-gateway", contains="hiringcoach", level="error")`
+  → failed audio fetches for the eval clips.
+
+For an agent run's own execution trace, use [CEF agent logs](/cef-agent-logs) instead.

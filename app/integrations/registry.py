@@ -14,6 +14,7 @@ from app.integrations._verification_adapters import (
     _verify_azure_sql,
     _verify_betterstack,
     _verify_bitbucket,
+    _verify_cef,
     _verify_clickhouse,
     _verify_coralogix,
     _verify_dagster,
@@ -103,6 +104,12 @@ INTEGRATION_SPECS: tuple[IntegrationSpec, ...] = (
         core_verify=True,
         setup_order=4,
         verify_order=3,
+    ),
+    IntegrationSpec(
+        service="cef",
+        verifier=_verify_cef,
+        direct_effective=True,
+        verify_order=48,
     ),
     IntegrationSpec(
         service="groundcover",

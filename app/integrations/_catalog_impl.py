@@ -20,10 +20,12 @@ from app.integrations.azure_sql import classify as _classify_azure_sql
 from app.integrations.betterstack import build_betterstack_config
 from app.integrations.betterstack import classify as _classify_betterstack
 from app.integrations.bitbucket import classify as _classify_bitbucket
+from app.integrations.cef import classify as _classify_cef
 from app.integrations.config_models import (
     AlertmanagerIntegrationConfig,
     ArgoCDIntegrationConfig,
     AWSIntegrationConfig,
+    CefIntegrationConfig,
     CoralogixIntegrationConfig,
     DatadogIntegrationConfig,
     DiscordBotConfig,
@@ -229,6 +231,7 @@ _CLASSIFIERS: dict[str, _ClassifyFn] = {
     "grafana": _classify_grafana,
     "grafana_local": _classify_grafana,
     "aws": _classify_aws,
+    "cef": _classify_cef,
     "datadog": _classify_datadog,
     "groundcover": _classify_groundcover,
     "honeycomb": _classify_honeycomb,
@@ -391,6 +394,34 @@ def load_env_integrations() -> list[dict[str, Any]]:
                 {
                     "endpoint": grafana_config.endpoint,
                     "api_key": grafana_config.api_key,
+                },
+            )
+        )
+
+    cef_vault_base_url = os.getenv("CEF_VAULT_BASE_URL", "").strip()
+    cef_vault_id = os.getenv("CEF_VAULT_ID", "").strip()
+    cef_wallet_path = os.getenv("CEF_WALLET_PATH", "").strip()
+    if cef_vault_base_url and cef_vault_id and cef_wallet_path:
+        cef_config = CefIntegrationConfig.model_validate(
+            {
+                "vault_base_url": cef_vault_base_url,
+                "vault_id": cef_vault_id,
+                "agent_id": os.getenv("CEF_AGENT_ID", "").strip(),
+                "wallet_path": cef_wallet_path,
+                "wallet_password": os.getenv("CEF_WALLET_PASSWORD", "").strip(),
+                "cluster": os.getenv("CEF_CLUSTER", "").strip() or "dragon1-testnet",
+            }
+        )
+        integrations.append(
+            _active_env_record(
+                "cef",
+                {
+                    "vault_base_url": cef_config.vault_base_url,
+                    "vault_id": cef_config.vault_id,
+                    "agent_id": cef_config.agent_id,
+                    "wallet_path": cef_config.wallet_path,
+                    "wallet_password": cef_config.wallet_password,
+                    "cluster": cef_config.cluster,
                 },
             )
         )

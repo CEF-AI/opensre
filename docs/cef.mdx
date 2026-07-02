@@ -1,0 +1,36 @@
+---
+title: CEF (Cere Agent Fleet)
+description: Connect OpenSRE to the CEF vault so it can read agent run logs for QA investigations.
+---
+
+The **CEF** integration lets OpenSRE read a CEF agent's execution logs (jobs, activities, and
+`ctx.log`) from the vault-api, using a wallet to sign requests. It powers the hiring-coach QA
+tools: [CEF agent logs](/cef-agent-logs), [CEF component logs](/cef-component-logs), and the
+[CEF runbook](/cef-component-logs). Loki access for component logs reuses the
+[Grafana](/grafana) integration.
+
+## Configuration
+
+Set these environment variables:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `CEF_VAULT_BASE_URL` | ✓ | Vault API base URL, e.g. `https://vault-api.compute.test.ddcdragon.com`. |
+| `CEF_VAULT_ID` | ✓ | The vault that owns the runs, e.g. `v-2b6b87b…`. |
+| `CEF_WALLET_PATH` | ✓ | Path to the Polkadot `wallet.json` used to sign requests. |
+| `CEF_WALLET_PASSWORD` | | Wallet password (store as a secret — env/keychain, never in plaintext). |
+| `CEF_AGENT_ID` | | Agent id `<service_pubkey>:<alias>` (e.g. `…:hiring-coach-lab2`). |
+| `CEF_CLUSTER` | | DDC cluster for component logs (default `dragon1-testnet`). |
+
+Requests are authenticated by signing each call with the wallet (ed25519) — no API key is needed
+for the vault. Component logs additionally require the Grafana integration (endpoint + token).
+
+## Verify
+
+```bash
+make verify-integrations
+```
+
+This decodes the wallet and makes a signed probe against the vault-api to confirm the credentials
+work. The integration is considered configured when `CEF_VAULT_BASE_URL`, `CEF_VAULT_ID`, and
+`CEF_WALLET_PATH` are all set.

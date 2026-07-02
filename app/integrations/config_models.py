@@ -54,6 +54,28 @@ class GrafanaIntegrationConfig(StrictConfigModel):
         return host in _LOCAL_GRAFANA_HOSTS
 
 
+class CefIntegrationConfig(StrictConfigModel):
+    """Normalized CEF vault credentials used by the hiring-coach QA tools.
+
+    Provides signed vault-api access (agent jobs/activities/logs) plus the DDC cluster
+    label for the component-log tool. Loki access reuses the ``grafana`` integration.
+    """
+
+    vault_base_url: str
+    vault_id: str = ""
+    agent_id: str = ""
+    wallet_path: str = ""
+    wallet_password: str = ""
+    cluster: str = "dragon1-testnet"
+    integration_id: str = ""
+
+    _normalize_vault_base_url = field_validator("vault_base_url", mode="before")(normalize_url())
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.vault_base_url and self.vault_id and self.wallet_path)
+
+
 class DatadogIntegrationConfig(StrictConfigModel):
     """Normalized Datadog credentials used by resolution and verification flows."""
 

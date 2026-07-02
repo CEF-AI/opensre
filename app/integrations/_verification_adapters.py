@@ -181,6 +181,28 @@ def _build_sts_client(config: dict[str, Any]) -> tuple[Any, str, str]:
     )
 
 
+def _verify_cef(source: str, config: dict[str, Any]) -> dict[str, str]:
+    from app.integrations.config_models import CefIntegrationConfig
+    from app.services.cef import CefVaultClient, signer_from_file
+
+    cef_config = CefIntegrationConfig.model_validate(config)
+    if not cef_config.is_configured:
+        return result("cef", source, "missing", "Missing vault_base_url, vault_id, or wallet_path.")
+    try:
+        signer = signer_from_file(cef_config.wallet_path, cef_config.wallet_password)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a verification failure
+        return result("cef", source, "failed", f"Wallet load failed: {exc}")
+
+    client = CefVaultClient(cef_config.vault_base_url, signer)
+    try:
+        probe = client.list_jobs(cef_config.vault_id, cef_config.agent_id, limit=1)
+    finally:
+        client.close()
+    if not probe.get("success"):
+        return result("cef", source, "failed", f"Vault probe failed: {probe.get('error')}")
+    return result("cef", source, "passed", f"Vault reachable at {cef_config.vault_base_url}.")
+
+
 def _verify_grafana(source: str, config: dict[str, Any]) -> dict[str, str]:
     grafana_config = GrafanaIntegrationConfig.model_validate(config)
     endpoint = grafana_config.endpoint

@@ -31,6 +31,16 @@ def test_falls_back_to_overview_when_no_match() -> None:
     assert get_cef_guidance(keywords=["zzz-nonsense"])["topics"] == ["pipeline_overview"]
 
 
+def test_procedure_topic_enforces_multi_component_coverage() -> None:
+    content = get_cef_guidance(topic="investigation_procedure")["guidance"][0]["content"].lower()
+    # must tell the agent NOT to conclude from agent logs alone, and to check each component
+    assert "agent logs alone" in content
+    for component in ("ddc-s3-gateway", "orchestrator", "agent-runtime"):
+        assert component in content
+    # keyword lookup also surfaces it
+    assert "investigation_procedure" in get_cef_guidance(keywords=["coverage"])["topics"]
+
+
 def test_all_topics_are_wellformed() -> None:
     for name, topic in CEF_TOPICS.items():
         assert topic.name and topic.content and topic.source

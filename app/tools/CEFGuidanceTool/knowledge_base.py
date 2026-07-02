@@ -22,6 +22,36 @@ class CefKnowledgeTopic:
 
 
 CEF_TOPICS: dict[str, CefKnowledgeTopic] = {
+    "investigation_procedure": CefKnowledgeTopic(
+        name="Investigation procedure — verify ALL components before concluding",
+        keywords=[
+            "procedure",
+            "coverage",
+            "checklist",
+            "verify",
+            "conclude",
+            "components",
+            "thorough",
+            "steps",
+            "how",
+        ],
+        content="""Do NOT conclude a run is healthy from the agent logs alone. Even when
+cef_agent_logs shows every activity 'completed' / a 'finalize done' line, you MUST still verify
+the other components before reporting success — a run can finalize while a component was degraded.
+
+For every run, check ALL of these, then report:
+  1. Agent stages  — cef_agent_logs: did all activities complete? which (if any) failed?
+     Note the failing/last activity's start/end timestamps -> this is the run's time window.
+  2. Audio fetch   — cef_component_logs(service="ddc-s3-gateway") over the run's window: any 4xx/5xx?
+  3. Inference     — cef_component_logs(service="orchestrator") over the run's window: any
+     "Inference failed" / "all inference nodes failed for model ..."?
+  4. Runtime       — cef_component_logs(service="agent-runtime") over the run's window: any crash/OOM?
+
+Use the run's time window (from step 1's activity timestamps), NOT a blind "last hour".
+Only report GREEN if ALL four are clean. In the report, state what you checked for EACH component
+(green or red) — even on a pass — so coverage is auditable.""",
+        source="CEF QA investigation procedure",
+    ),
     "pipeline_overview": CefKnowledgeTopic(
         name="Hiring-coach pipeline & CEF execution path",
         keywords=["overview", "pipeline", "hiring", "coach", "architecture", "flow", "cef"],

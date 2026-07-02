@@ -36,8 +36,8 @@ def _extract_guidance_params(sources: dict[str, dict[str, Any]]) -> dict[str, An
             "topic": {
                 "type": "string",
                 "description": (
-                    "Specific topic: pipeline_overview, stages_and_activities, failure_modes, "
-                    "log_markers, model_aliases, correlation"
+                    "Specific topic: investigation_procedure, pipeline_overview, "
+                    "stages_and_activities, failure_modes, log_markers, model_aliases, correlation"
                 ),
             },
             "keywords": {

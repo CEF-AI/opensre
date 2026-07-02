@@ -722,7 +722,29 @@ def _sentry_mcp_call_tool_case() -> ToolFailureCase:
     )
 
 
+def _cef_agent_logs_case() -> ToolFailureCase:
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from app.tools import CefAgentLogsTool as mod
+
+        mp.setattr(mod, "signer_from_file", MagicMock(side_effect=RuntimeError("bad wallet")))
+
+    def invoke() -> dict[str, Any]:
+        from app.tools.CefAgentLogsTool import cef_agent_logs
+
+        return cef_agent_logs(
+            conversation_id="c",
+            vault_base_url="https://vault-api.example",
+            vault_id="v-1",
+            agent_id="a:lab",
+            wallet_path="/wallet.json",
+            wallet_password="pw",
+        )
+
+    return ToolFailureCase("cef_agent_logs", patch, invoke, "cef_agent_logs", "cef")
+
+
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
+    _cef_agent_logs_case(),
     _azure_case(),
     _openobserve_case(),
     _snowflake_case(),
@@ -911,6 +933,8 @@ def test_eks_nodegroup_health_tags_failing_nodegroup_during_iteration(
 
 _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
     {
+        # CEF agent-log retrieval — reports the wallet-load swallow site.
+        "cef_agent_logs",
         # HTTP / cloud sites from #1463
         "query_azure_monitor_logs",
         "query_openobserve_logs",

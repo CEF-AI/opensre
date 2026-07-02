@@ -1,0 +1,44 @@
+---
+title: CEF agent logs
+description: Retrieve a CEF agent run's jobs, activities, and ctx.log lines from the Vault API.
+---
+
+The **CEF agent logs** tool (`cef_agent_logs`) retrieves a CEF agent run's own execution
+trace — its jobs, per-step activities, and the `ctx.log` lines each step emitted — directly
+from the Vault API. During an investigation the agent uses it to see *where* a run stopped and
+read the log lines for that step, then reasons about the cause itself. The tool only
+**retrieves**; it does not interpret the logs.
+
+## What it retrieves
+
+| Call it with | You get back |
+| --- | --- |
+| `conversation_id` | the run's job resolved via `job.context`, then that job's **activities** (each with its `status`) |
+| `job_id` | the job's **activities** directly (skips the conversation lookup) |
+| `job_id` + `activity_id` | that activity's raw **`ctx.log` lines** (`{timestamp, message}`) |
+| _(no match found)_ | the list of recent **jobs**, so you can pick or wait |
+
+Retrieval is caller-driven: list the activities first, then fetch the logs for the specific
+activity you care about — so a long run doesn't return one giant blob.
+
+## Configuration
+
+The tool reads its connection from the `cef` integration:
+
+- `vault_base_url` — e.g. `https://vault-api.compute.test.ddcdragon.com`
+- `vault_id` — the vault that owns the runs (e.g. `v-2b6b87b…`)
+- `agent_id` — `<service_pubkey>:<alias>` (e.g. `…:hiring-coach-lab2`)
+- `wallet_path` — path to the Polkadot `wallet.json` used to sign requests
+- `wallet_password` — the wallet password (store as a secret, never in plaintext docs)
+
+Requests are signed with the wallet (ed25519); no other credential is needed.
+
+## Example
+
+1. Resolve a failed run and list its steps:
+   - `cef_agent_logs(conversation_id="<uuid>")` → `job_id` + `activities[]` with each step's `status`.
+2. Read the logs for the step that did not complete:
+   - `cef_agent_logs(job_id="<job>", activity_id="<activity>")` → the `ctx.log` lines.
+
+For component/infrastructure logs (orchestrator inference failures, the S3 gateway, storage),
+use the Grafana tools instead — this tool covers the agent's *own* logs only.

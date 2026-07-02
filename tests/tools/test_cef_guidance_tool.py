@@ -41,6 +41,14 @@ def test_procedure_topic_enforces_multi_component_coverage() -> None:
     assert "investigation_procedure" in get_cef_guidance(keywords=["coverage"])["topics"]
 
 
+def test_score_regression_topic_is_history_based_no_thresholds() -> None:
+    content = get_cef_guidance(topic="score_regression")["guidance"][0]["content"].lower()
+    assert "cef_clip_history" in content  # points at the history tool
+    assert "baseline" in content and "history" in content
+    assert "threshold" in content  # explicitly says: without fixed thresholds
+    assert "score_regression" in get_cef_guidance(keywords=["regression", "drift"])["topics"]
+
+
 def test_all_topics_are_wellformed() -> None:
     for name, topic in CEF_TOPICS.items():
         assert topic.name and topic.content and topic.source

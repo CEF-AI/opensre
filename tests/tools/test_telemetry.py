@@ -761,8 +761,30 @@ def _cef_component_logs_case() -> ToolFailureCase:
     return ToolFailureCase("cef_component_logs", patch, invoke, "cef_component_logs", "cef")
 
 
+def _cef_clip_history_case() -> ToolFailureCase:
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from app.tools import CefClipHistoryTool as mod
+
+        mp.setattr(mod, "signer_from_file", MagicMock(side_effect=RuntimeError("bad wallet")))
+
+    def invoke() -> dict[str, Any]:
+        from app.tools.CefClipHistoryTool import cef_clip_history
+
+        return cef_clip_history(
+            clip="HIA-C1",
+            vault_base_url="https://vault-api.example",
+            vault_id="v-1",
+            agent_id="a:lab",
+            wallet_path="/wallet.json",
+            wallet_password="pw",
+        )
+
+    return ToolFailureCase("cef_clip_history", patch, invoke, "cef_clip_history", "cef")
+
+
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
     _cef_agent_logs_case(),
+    _cef_clip_history_case(),
     _cef_component_logs_case(),
     _azure_case(),
     _openobserve_case(),
@@ -954,6 +976,8 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
     {
         # CEF agent-log retrieval — reports the wallet-load swallow site.
         "cef_agent_logs",
+        # CEF clip-history retrieval — reports the wallet-load swallow site.
+        "cef_clip_history",
         # CEF component-log retrieval — reports the Loki query swallow site.
         "cef_component_logs",
         # HTTP / cloud sites from #1463

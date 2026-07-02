@@ -105,6 +105,36 @@ def test_activity_logs_returns_ctx_log_lines(monkeypatch: pytest.MonkeyPatch) ->
     assert result["data"]["logs"][0]["message"].endswith("finalize done")
 
 
+def test_cubby_query_signs_body_and_posts(monkeypatch: pytest.MonkeyPatch) -> None:
+    signer = _Ed25519Signer()
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        body = request.content
+        # POST signature verifies over the exact body bytes (not a path preamble)
+        VerifyKey(bytes.fromhex(request.headers["x-public-key"][2:])).verify(
+            body, bytes.fromhex(request.headers["x-signature"])
+        )
+        seen["body"] = json.loads(body)
+        return httpx.Response(200, json={"columns": ["c"], "rows": [["x"]]})
+
+    result = _client(monkeypatch, signer, handler).cubby_query(
+        "v-1", "0xpub:lab2", "SELECT * FROM analysis_runs WHERE candidate_id = ?", ["HIA-C1"]
+    )
+
+    assert result == {"success": True, "data": {"columns": ["c"], "rows": [["x"]]}}
+    assert seen["method"] == "POST"
+    # agent_id keeps its ':' un-encoded for the cubby endpoint; alias defaults to 'hiring'
+    assert (
+        seen["path"] == "/api/v1/vaults/v-1/scopes/default/agents/0xpub:lab2/cubbies/hiring/query"
+    )
+    assert seen["body"]["sql"].startswith("SELECT")
+    assert seen["body"]["params"] == ["HIA-C1"]
+    assert "timestamp" in seen["body"]
+
+
 def test_http_error_is_captured_as_result(monkeypatch: pytest.MonkeyPatch) -> None:
     signer = _Ed25519Signer()
 

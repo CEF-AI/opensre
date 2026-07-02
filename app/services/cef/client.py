@@ -95,6 +95,53 @@ class CefVaultClient:
             return {"success": False, "error": str(exc)}
         return {"success": True, "data": payload}
 
+    def _signed_body(self, body: dict[str, Any]) -> tuple[dict[str, str], bytes]:
+        # POST auth signs the request body (with an injected timestamp), not the path;
+        # the exact signed bytes must be the request body.
+        payload = {**body, "timestamp": _now_millis_iso()}
+        body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        signature = self._signer.sign(body_bytes)
+        headers = {
+            "X-Public-Key": self._signer.public_key_hex,
+            "X-Signature": signature.hex(),
+            "X-Signature-Type": _SIGNATURE_TYPE,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        return headers, body_bytes
+
+    def _post(self, path: str, body: dict[str, Any], *, op: str) -> dict[str, Any]:
+        headers, body_bytes = self._signed_body(body)
+        try:
+            response = self._get_client().post(path, content=body_bytes, headers=headers)
+            response.raise_for_status()
+            payload: Any = response.json()
+        except Exception as exc:  # noqa: BLE001 - normalized into a result dict for the tool layer
+            capture_service_error(
+                exc, logger=logger, integration=_INTEGRATION, method=op, extras={"path": path}
+            )
+            return {"success": False, "error": str(exc)}
+        return {"success": True, "data": payload}
+
+    def cubby_query(
+        self,
+        vault_id: str,
+        agent_id: str,
+        sql: str,
+        params: list[Any],
+        *,
+        scope: str = "default",
+        alias: str = "hiring",
+    ) -> dict[str, Any]:
+        """Run a read-only SQL query against an agent's cubby (e.g. ``analysis_runs``)."""
+        # NB: the cubby endpoint takes the agent_id with its ':' un-encoded (unlike the
+        # jobs endpoint), so keep the colon in `safe`.
+        path = (
+            f"/api/v1/vaults/{quote(vault_id, safe='')}/scopes/{quote(scope, safe='')}"
+            f"/agents/{quote(agent_id, safe=':')}/cubbies/{quote(alias, safe='')}/query"
+        )
+        return self._post(path, {"sql": sql, "params": params}, op="cubby_query")
+
     def list_jobs(self, vault_id: str, agent_id: str, *, limit: int = 50) -> dict[str, Any]:
         """List jobs for an agent connection (``agent_id`` is ``<pubkey>:<alias>``)."""
         path = f"/api/v1/vaults/{quote(vault_id, safe='')}/agents/{quote(agent_id, safe='')}/jobs"

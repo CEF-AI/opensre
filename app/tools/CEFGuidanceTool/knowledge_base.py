@@ -52,6 +52,40 @@ Only report GREEN if ALL four are clean. In the report, state what you checked f
 (green or red) — even on a pass — so coverage is auditable.""",
         source="CEF QA investigation procedure",
     ),
+    "score_regression": CefKnowledgeTopic(
+        name="Score regression — deviation from the clip's own history (no thresholds)",
+        keywords=[
+            "regression",
+            "score",
+            "quality",
+            "baseline",
+            "history",
+            "deviation",
+            "drift",
+            "calibration",
+            "wrong",
+        ],
+        content="""A run can COMPLETE successfully yet still be wrong — the scores drifted. Detect
+this WITHOUT fixed thresholds: judge the run against the clip's OWN history, and against its
+transcript.
+
+Procedure:
+  1. cef_clip_history(clip) — pull this clip's prior runs (its scores over time). That history IS
+     the baseline; nobody hard-codes a "good" number.
+  2. Compare THIS run's scores to that baseline. A regression = a clear outlier vs. the clip's own
+     track record (e.g. a clip that has produced clarity ~0.88 across many runs now returns ~0.5),
+     not "below some cutoff". Small run-to-run wobble is normal; a break from the pattern is not.
+  3. Consistency check — read the transcript (timeline turns from cef_agent_logs) against the score:
+     does the score make sense for what was actually said? (A clearly-structured answer scoring very
+     low clarity is internally inconsistent.)
+  4. Use the clip's intent from its name only as a sanity direction, never as a numeric gate:
+     *_clarity_good = should read as clear; *_clarity_zero = should read as unclear;
+     *reading_ai* = reading; *spontaneous*/*not_reading* = not reading; *_fp = a false-positive guard.
+
+Report a regression as: this run's value, the clip's historical range, and why it's a deviation —
+so it is auditable. The baseline self-adjusts as the agent legitimately improves.""",
+        source="CEF QA score-regression procedure",
+    ),
     "pipeline_overview": CefKnowledgeTopic(
         name="Hiring-coach pipeline & CEF execution path",
         keywords=["overview", "pipeline", "hiring", "coach", "architecture", "flow", "cef"],

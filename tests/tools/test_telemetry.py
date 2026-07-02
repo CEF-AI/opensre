@@ -1104,6 +1104,7 @@ _TOOLS_WITHOUT_DELIBERATE_CATCH: frozenset[str] = frozenset(
         "get_redis_server_info",
         "get_redis_slowlog",
         "get_s3_object",
+        "get_cef_guidance",
         "get_sentry_issue_details",
         "get_sre_guidance",
         "get_supabase_service_health",

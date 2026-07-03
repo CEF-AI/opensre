@@ -49,6 +49,14 @@ def test_score_regression_topic_is_history_based_no_thresholds() -> None:
     assert "score_regression" in get_cef_guidance(keywords=["regression", "drift"])["topics"]
 
 
+def test_full_qa_topic_covers_both_execution_and_regression() -> None:
+    content = get_cef_guidance(topic="full_qa")["guidance"][0]["content"].lower()
+    assert "investigation_procedure" in content  # part A
+    assert "score_regression" in content  # part B
+    assert "cef_clip_history" in content
+    assert "full_qa" in get_cef_guidance(keywords=["qa", "audit"])["topics"]
+
+
 def test_all_topics_are_wellformed() -> None:
     for name, topic in CEF_TOPICS.items():
         assert topic.name and topic.content and topic.source

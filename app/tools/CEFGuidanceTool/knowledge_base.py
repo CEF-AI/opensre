@@ -22,6 +22,26 @@ class CefKnowledgeTopic:
 
 
 CEF_TOPICS: dict[str, CefKnowledgeTopic] = {
+    "full_qa": CefKnowledgeTopic(
+        name="Full QA of a run — execution health AND score quality",
+        keywords=["qa", "full", "both", "complete", "run", "review", "audit", "check"],
+        content="""A complete QA of a run has TWO parts. Do BOTH, and report both — a run is only
+GREEN if it executed cleanly AND its scores are in line with the clip's history.
+
+PART A — Execution health (did it run correctly):
+  Follow `investigation_procedure`. Verify agent stages (cef_agent_logs), then audio (s3-gateway),
+  inference (orchestrator), and runtime (agent-runtime) over the run's window. Don't conclude from
+  agent logs alone.
+
+PART B — Score quality (did it score right):
+  Follow `score_regression`. EVEN IF execution is clean, pull the clip's history
+  (cef_clip_history) and judge whether this run's scores deviate from the clip's OWN baseline
+  (no thresholds) and are consistent with the transcript.
+
+Report both outcomes explicitly: execution status per component AND any score regression (with the
+run's value vs the clip's historical range). State which part — A, B, both, or neither — is the issue.""",
+        source="CEF QA full-run procedure",
+    ),
     "investigation_procedure": CefKnowledgeTopic(
         name="Investigation procedure — verify ALL components before concluding",
         keywords=[

@@ -19,6 +19,8 @@ class ReportContext(TypedDict, total=False):
     pipeline_name: str
     alert_name: str | None
     root_cause: str
+    root_cause_category: str | None
+    validity_score: float | None
     validated_claims: list[dict]
     non_validated_claims: list[dict]
     remediation_steps: list[str]

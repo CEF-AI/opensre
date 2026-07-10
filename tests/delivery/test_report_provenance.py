@@ -92,6 +92,54 @@ def test_format_telegram_message_uses_html_and_severity_header() -> None:
     assert "<b>KubernetesJobFailed</b>" in body
     assert "CRITICAL" in body
     assert "##" not in body
+
+
+def _make_cef_state() -> dict:
+    return {
+        "pipeline_name": "hiring-coach",
+        "alert_name": "CEF hiring-coach QA (regression)",
+        "severity": "high",
+        "root_cause": "linguistic judge under-rated strong language despite clean execution.",
+        "root_cause_category": "code_defect",
+        "validity_score": 1.0,
+        "validated_claims": [{"claim": "linguistic_score 0.20 vs baseline 0.85"}],
+        "non_validated_claims": [{"claim": "prompt change vs scoring bug"}],
+        "remediation_steps": ["diff E040 vs E039 prompt"],
+        "raw_alert": {
+            "alert_source": "cef",
+            "commonAnnotations": {
+                "context_sources": "cef,grafana",
+                "variant": "E040",
+                "clip": "HIA-C1",
+                "cluster": "dragon1-testnet",
+                "conversation_id": "d05225a7-4524-4f57-98b3-c9578b1fe6cb",
+            },
+        },
+    }
+
+
+def test_cef_investigation_renders_beautified_qa_verdict() -> None:
+    ctx = build_report_context(_make_cef_state())
+    body = format_telegram_message(ctx)
+    # beautified CEF layout, not the generic HTML report
+    assert body.startswith("🔴  hiring-coach QA · NO-GO")
+    assert "E040 · HIA-C1 · dragon1-testnet" in body and "confidence: high" in body
+    assert "FINDINGS" in body and "linguistic_score 0.20 vs baseline 0.85" in body
+    assert "DO" in body and "diff E040 vs E039 prompt" in body
+    assert "NOT VERIFIED" in body and "prompt change vs scoring bug" in body
+    assert "conv d05225a7-4524-4f57-98b3-c9578b1fe6cb" in body
+    # no generic HTML section headers leaked in
+    assert "<b>Findings</b>" not in body
+
+
+def test_cef_html_escapes_dynamic_text() -> None:
+    state = _make_cef_state()
+    state["root_cause"] = "judge compared a < b & failed"
+    ctx = build_report_context(state)
+    body = format_telegram_message(ctx)
+    # HTML-safe for parse_mode=HTML: raw <, & must be escaped
+    assert "a &lt; b &amp; failed" in body
+    assert "a < b & failed" not in body
     assert "*Cited Evidence" not in body
 
 

@@ -526,13 +526,44 @@ def format_slack_message(ctx: ReportContext) -> str:
 """
 
 
+def _is_cef_report(ctx: ReportContext) -> bool:
+    """True when the investigation is CEF-sourced (renders the beautified QA layout)."""
+    raw = ctx.get("raw_alert") or {}
+    if str(raw.get("alert_source") or "").lower() == "cef":
+        return True
+    ann = raw.get("commonAnnotations") or raw.get("annotations") or {}
+    return "cef" in str(ann.get("context_sources") or "").split(",")
+
+
+def _cef_subtitle_footer(ctx: ReportContext) -> tuple[str, str]:
+    """Derive the CEF report subtitle (variant · clip · cluster · model) and refs footer."""
+    raw = ctx.get("raw_alert") or {}
+    ann = raw.get("commonAnnotations") or raw.get("annotations") or {}
+    subtitle = " · ".join(
+        str(ann[k]) for k in ("variant", "clip", "cluster", "model") if ann.get(k)
+    )
+    conversation_id = ann.get("conversation_id") or ""
+    footer = f"conv {conversation_id}" if conversation_id else ""
+    return subtitle, footer
+
+
 def format_telegram_message(ctx: ReportContext) -> str:
     """Format an HTML RCA message for Telegram (:meth:`parse_mode` ``HTML``).
 
     Uses Telegram-supported tags and a Hermes-style severity emoji header, instead
     of Slack mrkdwn (``<url|label>``, ``##`` headings) which render as plain text
     without ``parse_mode``.
+
+    CEF-sourced investigations render the beautified QA verdict layout instead; it
+    carries no HTML tags, so it is escaped whole (``& < >`` only) to stay HTML-safe.
     """
+    if _is_cef_report(ctx):
+        from app.services.cef.report import format_cef_qa_telegram
+
+        subtitle, footer = _cef_subtitle_footer(ctx)
+        text = format_cef_qa_telegram(dict(ctx), subtitle=subtitle, footer=footer)
+        return html.escape(text, quote=False)
+
     duration_seconds = ctx.get("investigation_duration_seconds")
     alert_id = ctx.get("alert_id")
     derived_rc = _derive_root_cause_sentence(ctx)

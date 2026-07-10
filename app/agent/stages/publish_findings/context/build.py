@@ -38,6 +38,8 @@ def build_report_context(state: InvestigationState) -> ReportContext:
         "pipeline_name": state.get("pipeline_name", "unknown"),
         "alert_name": state.get("alert_name"),
         "root_cause": state.get("root_cause", ""),
+        "root_cause_category": state.get("root_cause_category"),
+        "validity_score": state.get("validity_score"),
         "validated_claims": validated_claims,
         "non_validated_claims": non_validated_claims,
         "remediation_steps": state.get("remediation_steps", []),

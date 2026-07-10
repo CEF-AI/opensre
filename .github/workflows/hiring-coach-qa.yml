@@ -1,0 +1,111 @@
+# hiring-coach QA — scheduled agent-QA on every new manifest release.
+#
+# Self-contained in this repo: the eval/watcher (Node) lives in ./qa-agent, OpenSRE (Python) is
+# the repo itself. OpenSRE runs as a CLI (no exposed gateway).
+#
+# Flow (one job):
+#   1. ./qa-agent/manifest-watch.ts (Node): if the QA vault's connection is behind the published
+#      version, upgrade it, run the eval clips, and EMIT one alert per finished run to alerts.jsonl.
+#      Stateless (--no-state): the vault connection version is the state, so each version is QA'd
+#      exactly once. Nothing new -> alerts.jsonl stays empty.
+#   2. `opensre investigate --input-json <alert>` per emitted alert. OpenSRE resolves cef/grafana +
+#      the reporting channel from env, investigates (execution mode), and delivers.
+#
+# Reporting: Telegram for now; add Slack by setting SLACK_* secrets (from Martin) — no code change.
+#
+# Required repo secrets:
+#   CEF_WALLET_B64          base64 of the QA wallet.json
+#   CEF_WALLET_PASSWORD     wallet password
+#   CEF_VAULT_ID, CEF_AGENT_ID, CEF_AGENT_SERVICE_PUBKEY
+#   GRAFANA_READ_TOKEN
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_DEFAULT_CHAT_ID     (until Slack lands)
+#   # later: SLACK_BOT_TOKEN, SLACK_DEFAULT_CHANNEL
+
+name: hiring-coach QA
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # poll every 15 min for a new published version
+  workflow_dispatch: {} # manual trigger
+
+concurrency:
+  group: hiring-coach-qa
+  cancel-in-progress: false # never cancel an in-flight QA run
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # --- non-secret CEF config ---
+      VAULT_URL: https://vault-api.compute.test.ddcdragon.com
+      CEF_VAULT_BASE_URL: https://vault-api.compute.test.ddcdragon.com
+      MARKETPLACE_URL: https://agent-marketplace.compute.test.ddcdragon.com
+      GAR_URL: https://gar.compute.test.ddcdragon.com/api/v1
+      GRAFANA_INSTANCE_URL: https://dashboards.cere.io
+      HIRING_AGENT_ALIAS: hiring-coach-qa
+      CEF_CLUSTER: dragon1-testnet
+      LLM_PROVIDER: ddcdragon # OSS model only
+      # --- secrets ---
+      CEF_VAULT_ID: ${{ secrets.CEF_VAULT_ID }}
+      CEF_AGENT_ID: ${{ secrets.CEF_AGENT_ID }}
+      CEF_AGENT_SERVICE_PUBKEY: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}
+      CEF_WALLET_PASSWORD: ${{ secrets.CEF_WALLET_PASSWORD }}
+      GRAFANA_READ_TOKEN: ${{ secrets.GRAFANA_READ_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_DEFAULT_CHAT_ID: ${{ secrets.TELEGRAM_DEFAULT_CHAT_ID }}
+      # SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}          # enable when Martin provides them
+      # SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # --- Node toolchain for the eval / watcher (./qa-agent) ---
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: qa-agent/pnpm-lock.yaml
+      - name: Install eval deps
+        run: pnpm install --frozen-lockfile
+        working-directory: qa-agent
+
+      # --- Python toolchain for OpenSRE ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install OpenSRE
+        run: uv sync --frozen --extra dev
+
+      - name: Write QA wallet
+        run: printf '%s' "${{ secrets.CEF_WALLET_B64 }}" | base64 -d > "$RUNNER_TEMP/wallet.json"
+
+      - name: Detect new release, upgrade QA vault, run eval (emit alerts)
+        env:
+          QA_EMIT_FILE: ${{ github.workspace }}/alerts.jsonl
+          CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
+        run: |
+          set -euo pipefail
+          : > "$QA_EMIT_FILE"   # start empty
+          pnpm exec tsx manifest-watch.ts \
+            --apply --no-state \
+            --wallet "$CEF_WALLET_PATH" --password "$CEF_WALLET_PASSWORD" \
+            --clips HIA-C1,HIA-A1,HIA-E1
+          echo "emitted $(wc -l < "$QA_EMIT_FILE" | tr -d ' ') alert(s)"
+        working-directory: qa-agent
+
+      - name: QA each finished run via OpenSRE CLI
+        run: |
+          set -euo pipefail
+          ALERTS="${{ github.workspace }}/alerts.jsonl"
+          if [ ! -s "$ALERTS" ]; then echo "No new release this cycle — nothing to QA."; exit 0; fi
+          while IFS= read -r alert; do
+            [ -z "$alert" ] && continue
+            echo "→ investigating $(printf '%s' "$alert" | uv run python -c 'import sys,json;print(json.load(sys.stdin)["commonAnnotations"]["conversation_id"])')"
+            uv run opensre investigate --input-json "$alert"
+          done < "$ALERTS"

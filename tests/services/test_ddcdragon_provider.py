@@ -95,6 +95,20 @@ def test_agent_client_parses_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None
     assert call.input == {"conversation_id": "c"}
 
 
+def test_repair_mangled_tool_args_recovers_gemma_followup_calls() -> None:
+    from app.services.agent_llm_client import _repair_mangled_tool_args
+
+    # gemma4_31b sometimes emits args as a JSON object whose keys are JSON fragments
+    # (the shape of json.dumps(real) split on ", " then ": "). Repair must reverse it.
+    two = {'{"conversation_id"': '"c-1"', '"job_id"': '"j-1"'}
+    assert _repair_mangled_tool_args(two) == {"conversation_id": "c-1", "job_id": "j-1"}
+    one = {'{"job_id"': '"j-1"'}
+    assert _repair_mangled_tool_args(one) == {"job_id": "j-1"}
+    # clean args are returned untouched (no false repairs)
+    assert _repair_mangled_tool_args({"topic": "x"}) == {"topic": "x"}
+    assert _repair_mangled_tool_args({}) == {}
+
+
 def test_get_agent_llm_routes_to_ddcdragon(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.config as config
     import app.services.agent_llm_client as mod

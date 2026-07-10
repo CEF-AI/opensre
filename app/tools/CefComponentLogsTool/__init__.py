@@ -29,6 +29,9 @@ _NAMESPACE_BY_SERVICE: dict[str, str] = {
 }
 _DEFAULT_CLUSTER = "dragon1-testnet"
 _DEFAULT_LIMIT = 100
+# CEF-plane components embed vaultId/agentId in their log lines, so they can be scoped to one
+# tenant. ddc-s3-gateway does not (plain HTTP access logs keyed by URI) — never scope it.
+_TENANT_TAGGED = {"orchestrator", "agent-runtime", "vault-api", "nats", "cef-core"}
 
 CefService = Literal[
     "orchestrator", "agent-runtime", "vault-api", "nats", "cef-core", "ddc-s3-gateway"
@@ -46,6 +49,15 @@ class CefComponentLogsInput(BaseModel):
     )
     level: str | None = Field(
         default=None, description="Log level to match, e.g. 'error' or 'warning'."
+    )
+    tenant_scoped: bool = Field(
+        default=True,
+        description=(
+            "Restrict CEF-plane components (orchestrator/agent-runtime/vault-api/nats/cef-core) "
+            "to lines that reference THIS run's vault/agent, so other tenants' noise is excluded. "
+            "Set False to search shared signals that carry no vault/agent id — e.g. inference "
+            "failures by model name (pass the model as `contains`). Ignored for ddc-s3-gateway."
+        ),
     )
     limit: int = Field(default=_DEFAULT_LIMIT, description="Max log lines to return.")
 
@@ -80,12 +92,29 @@ def _cef_logs_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "grafana_username": grafana.get("username", ""),
         "grafana_password": grafana.get("password", ""),
         "cluster": cef.get("cluster") or _DEFAULT_CLUSTER,
+        "vault_id": cef.get("vault_id", ""),
+        "agent_id": cef.get("agent_id", ""),
     }
 
 
-def _build_query(service: str, cluster: str, contains: str | None, level: str | None) -> str:
+def _build_query(
+    service: str,
+    cluster: str,
+    contains: str | None,
+    level: str | None,
+    *,
+    vault_id: str = "",
+    agent_id: str = "",
+    tenant_scoped: bool = True,
+) -> str:
     namespace = _NAMESPACE_BY_SERVICE[service]
     query = f'{{namespace="{namespace}", cluster="{cluster}", service_name="{service}"}}'
+    # Tenant scope: CEF-plane lines carry our vaultId/agentId, so restrict to ours and keep
+    # other tenants' noise out of the evidence. Purely a query filter — no content inspection.
+    if tenant_scoped and service in _TENANT_TAGGED:
+        idents = [i for i in (agent_id, vault_id) if i]
+        if idents:
+            query += " |~ `" + "|".join(idents) + "`"  # match lines referencing our vault/agent
     if contains:
         query += f" |= `{contains}`"  # literal line-contains (non-regex)
     if level:
@@ -127,6 +156,8 @@ def _build_query(service: str, cluster: str, contains: str | None, level: str | 
         "grafana_username",
         "grafana_password",
         "cluster",
+        "vault_id",
+        "agent_id",
     ),
     is_available=_cef_logs_is_available,
     extract_params=_cef_logs_extract_params,
@@ -136,12 +167,15 @@ def cef_component_logs(
     time_range_minutes: int = 60,
     contains: str | None = None,
     level: str | None = None,
+    tenant_scoped: bool = True,
     limit: int = _DEFAULT_LIMIT,
     grafana_endpoint: str | None = None,
     grafana_api_key: str | None = None,
     grafana_username: str = "",
     grafana_password: str = "",
     cluster: str = _DEFAULT_CLUSTER,
+    vault_id: str = "",
+    agent_id: str = "",
     **_kwargs: Any,
 ) -> dict[str, Any]:
     """Retrieve CEF component logs from Loki. Pure retrieval; the agent does the analysis."""
@@ -150,7 +184,15 @@ def cef_component_logs(
     if service not in _NAMESPACE_BY_SERVICE:
         return {"source": "cef", "available": False, "error": f"Unknown CEF service '{service}'."}
 
-    query = _build_query(service, cluster, contains, level)
+    query = _build_query(
+        service,
+        cluster,
+        contains,
+        level,
+        vault_id=vault_id,
+        agent_id=agent_id,
+        tenant_scoped=tenant_scoped,
+    )
     try:
         client = get_grafana_client_from_credentials(
             endpoint=grafana_endpoint,

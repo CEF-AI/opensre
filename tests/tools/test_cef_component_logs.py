@@ -55,12 +55,49 @@ def test_build_query_appends_contains_and_level() -> None:
 
 
 def test_availability_and_extract_params() -> None:
-    sources = {"grafana": {"grafana_endpoint": "https://x", "grafana_api_key": "k"}, "cef": {}}
+    sources = {
+        "grafana": {"grafana_endpoint": "https://x", "grafana_api_key": "k"},
+        "cef": {"vault_id": "v-1", "agent_id": "pub:qa"},
+    }
     assert _cef_logs_is_available(sources) is True
     assert _cef_logs_is_available({"grafana": {}}) is False
     params = _cef_logs_extract_params(sources)
     assert params["grafana_endpoint"] == "https://x"
     assert params["cluster"] == "dragon1-testnet"  # default when cef.cluster absent
+    assert params["vault_id"] == "v-1" and params["agent_id"] == "pub:qa"  # injected for scoping
+
+
+def test_tenant_scoping_restricts_cef_plane_services() -> None:
+    q = _build_query(
+        "orchestrator", "dragon1-testnet", None, None, vault_id="v-2b6b", agent_id="pub:hiring-coach-qa"
+    )
+    # only lines referencing our vault/agent (keeps other tenants' noise out)
+    assert "|~ `pub:hiring-coach-qa|v-2b6b`" in q
+
+
+def test_tenant_scoping_never_applies_to_s3_gateway() -> None:
+    # s3-gateway logs carry no vault/agent id, so scoping must be a no-op there
+    q = _build_query(
+        "ddc-s3-gateway", "dragon1-testnet", None, None, vault_id="v-2b6b", agent_id="pub:qa"
+    )
+    assert "|~" not in q
+
+
+def test_tenant_scoped_false_skips_filter_for_inference_by_model() -> None:
+    # inference failures carry a model name, not a vault/agent id → opt out of tenant scope
+    q = _build_query(
+        "orchestrator", "dragon1-testnet", "gemma4_31b", None,
+        vault_id="v-2b6b", agent_id="pub:qa", tenant_scoped=False,
+    )
+    assert "v-2b6b" not in q and "pub:qa" not in q
+    assert "|= `gemma4_31b`" in q
+
+
+def test_component_logs_applies_tenant_scope_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeGrafana([{"message": "x"}])
+    _patch(monkeypatch, client)
+    cef_component_logs(service="orchestrator", vault_id="v-2b6b", agent_id="pub:qa", **_CREDS)
+    assert "|~ `pub:qa|v-2b6b`" in (client.last_query or "")
 
 
 def test_not_configured_is_unavailable() -> None:

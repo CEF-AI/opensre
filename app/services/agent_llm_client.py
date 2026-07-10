@@ -636,6 +636,22 @@ class OpenAIAgentClient:
         return msg
 
 
+def _repair_mangled_tool_args(args: dict[str, Any]) -> dict[str, Any]:
+    """Recover tool args when the model emits a JSON object whose keys are themselves JSON
+    fragments — observed with gemma4_31b on follow-up tool calls, where the arguments come back
+    as e.g. ``{'{"conversation_id"': '"c-1"', '"job_id"': '"j-1"'}`` (the shape you get from
+    ``json.dumps(real_args)`` split on ``", "`` then ``": "``). Reverse it by re-joining and
+    re-parsing. No-op unless the first key carries the tell-tale leading ``{"``."""
+    keys = list(args)
+    if not (keys and isinstance(keys[0], str) and keys[0].lstrip().startswith('{"')):
+        return args
+    try:
+        recovered = json.loads(", ".join(f"{k}: {v}" for k, v in args.items()) + "}")
+    except (json.JSONDecodeError, TypeError):
+        return args
+    return recovered if isinstance(recovered, dict) else args
+
+
 class DdcDragonAgentClient(OpenAIAgentClient):
     """Agent client for the DDC Dragon wrapped inference API (e.g. gemma4_31b).
 
@@ -708,6 +724,8 @@ class DdcDragonAgentClient(OpenAIAgentClient):
                 args = json.loads(fn.get("arguments") or "{}")
             except (json.JSONDecodeError, TypeError):
                 args = {}
+            if isinstance(args, dict):
+                args = _repair_mangled_tool_args(args)
             tool_calls.append(
                 ToolCall(id=str(tc.get("id") or ""), name=str(fn.get("name") or ""), input=args)
             )

@@ -55,21 +55,45 @@ run's value vs the clip's historical range). State which part — A, B, both, or
             "steps",
             "how",
         ],
-        content="""Do NOT conclude a run is healthy from the agent logs alone. Even when
-cef_agent_logs shows every activity 'completed' / a 'finalize done' line, you MUST still verify
-the other components before reporting success — a run can finalize while a component was degraded.
+        content="""VERDICT PRECEDENCE — decide pass/fail from the RUN'S OWN outcome, never from
+ambient errors. This is the most important rule:
+- The authoritative signal is the run's activities + cubby status. If every activity is 'completed'
+  and the cubby row is status='completed', the run SUCCEEDED -> report PASS, even if some component
+  logged errors during the window. A completed run is not a failure.
+- Component / inference errors are CONTEXT, not the verdict. An error the platform retried past
+  (e.g. a "trying next node" line) after which the run still completed is a degraded-but-survived
+  note — report it as an observation, NOT a NO-GO.
+- Report NO-GO only when the run itself did not succeed: an activity 'failed', cubby status is
+  'failed' or missing, or the run never finalized. THEN use the component evidence to explain WHY.
+- You will often see conflicting evidence (all activities completed, yet a model errored mid-window).
+  Reconcile toward the run's outcome: completed run + transient infra error = PASS with a note. It is
+  wrong to call a completed run failed because a shared model blipped during its window.
 
-For every run, check ALL of these, then report:
-  1. Agent stages  — cef_agent_logs: did all activities complete? which (if any) failed?
-     Note the failing/last activity's start/end timestamps -> this is the run's time window.
-  2. Audio fetch   — cef_component_logs(service="ddc-s3-gateway") over the run's window: any 4xx/5xx?
-  3. Inference     — cef_component_logs(service="orchestrator") over the run's window: any
-     "Inference failed" / "all inference nodes failed for model ..."?
-  4. Runtime       — cef_component_logs(service="agent-runtime") over the run's window: any crash/OOM?
+Do NOT conclude from the agent logs alone that everything was perfect — still check the other
+components so you can NOTE degradation and, on a real failure, explain it. You read the raw lines and
+reason yourself; the tools only retrieve. Do not pattern-match a fixed error string.
 
-Use the run's time window (from step 1's activity timestamps), NOT a blind "last hour".
-Only report GREEN if ALL four are clean. In the report, state what you checked for EACH component
-(green or red) — even on a pass — so coverage is auditable.""",
+Scope to THIS run; never attribute another tenant's noise to it:
+- For orchestrator / agent-runtime / vault-api / nats / cef-core, cef_component_logs is
+  tenant_scoped by default: it returns only lines that reference this run's vault/agent. If a line
+  does not reference our vault, agent, or conversation, it is NOT this run's evidence — ignore it.
+
+Checks (use the run's time window from step 1, not a blind "last hour"):
+  1. Agent stages — cef_agent_logs: did all activities complete? which (if any) failed? This decides
+     the verdict (see precedence above). Record the failing/last activity start/end -> run window.
+  2. Audio fetch  — cef_component_logs(service="ddc-s3-gateway"): plain HTTP access logs with NO
+     vault/agent id (tenant scoping does nothing), so correlate by the audio path + window.
+  3. Inference    — inference failures are SHARED infrastructure: they carry a model name, not a
+     vault/agent id, so tenant scoping would hide them. Query
+     cef_component_logs(service="orchestrator", tenant_scoped=false, contains="<model>") for each
+     model THIS agent uses (listed in the alert under 'agent_models'; if absent, read them from the
+     agent's manifest/activities — do not assume a fixed set). A model error here is at most a
+     PLATFORM/infra note; it only becomes a run failure if an activity actually failed because of it.
+  4. Runtime      — cef_component_logs(service="agent-runtime"): tenant-scoped; any crash/restart
+     affecting our agent in the window?
+
+State what you checked for EACH component (green / degraded / red) so coverage is auditable — but
+the PASS/NO-GO verdict follows the run's activity+cubby outcome, per precedence above.""",
         source="CEF QA investigation procedure",
     ),
     "score_regression": CefKnowledgeTopic(

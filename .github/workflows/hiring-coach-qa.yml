@@ -50,6 +50,10 @@ jobs:
       HIRING_AGENT_ALIAS: ${{ matrix.alias }}
       CEF_CLUSTER: dragon1-testnet
       LLM_PROVIDER: ddcdragon # OSS model only
+      # Wallet path is JOB-level so the OpenSRE investigate step (not just the eval step) can reach
+      # the CEF vault — otherwise cef_agent_logs is unavailable during QA and the agent can only see
+      # component/Loki logs, never the run's own activities. The wallet file is written below.
+      CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
       # --- secrets ---
       CEF_VAULT_ID: ${{ secrets.CEF_VAULT_ID }}
       # Composed from the shared agent-service pubkey + this job's alias, so each matrix job QAs its
@@ -94,7 +98,6 @@ jobs:
       - name: Detect new release, upgrade QA vault, run eval (emit alerts)
         env:
           QA_EMIT_FILE: ${{ github.workspace }}/alerts.jsonl
-          CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
         run: |
           set -euo pipefail
           : > "$QA_EMIT_FILE"   # start empty

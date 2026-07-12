@@ -117,8 +117,10 @@ def _dispatch_telegram(
             telegram_message,
             {"bot_token": bot_token, "chat_id": chat_id, "reply_to_message_id": reply_to},
         )
-        logger.debug("[publish] telegram delivery: posted=%s error=%s", tg_posted, tg_error)
-        if not tg_posted:
+        # INFO (not DEBUG) so delivery is observable in CI logs, where DEBUG is suppressed.
+        if tg_posted:
+            logger.info("[publish] Telegram delivery OK: chat_id=%s", chat_id)
+        else:
             logger.warning(
                 "[publish] Telegram delivery failed: chat_id=%s error=%s",
                 chat_id,
@@ -126,10 +128,11 @@ def _dispatch_telegram(
             )
         return
 
-    logger.debug(
-        "[publish] telegram delivery: skipped - bot_token_present=%s chat_id=%s",
+    # Creds resolved but one field empty — surface it (WARNING) rather than silently skipping.
+    logger.warning(
+        "[publish] Telegram delivery skipped: bot_token_present=%s chat_id_present=%s",
         bool(bot_token),
-        chat_id,
+        bool(chat_id),
     )
 
 

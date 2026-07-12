@@ -1,0 +1,19 @@
+name: telegram preflight
+on:
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send a test message via the configured secrets
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_DEFAULT_CHAT_ID }}
+        run: |
+          echo "token_present=$([ -n \"$TOKEN\" ] && echo yes || echo no)  chat_id_len=${#CHAT}"
+          resp=$(curl -s "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=OpenSRE CEF QA — Telegram delivery preflight ✅")
+          echo "telegram response: $resp"
+          echo "$resp" | grep -q '"ok":true' || { echo "DELIVERY FAILED (see response above)"; exit 1; }
+          echo "DELIVERY OK"

@@ -1,0 +1,27 @@
+# Insufficient evidence: the run for conversation_id fixture-conv-missing cannot be located (the
+# only job in the window belongs to fixture-conv-other), and component logs show only that unrelated
+# job. The agent MUST NOT assert PASS or NO-GO — it must report low confidence so the report gates
+# to NEEDS REVIEW. This regression-covers the confidence gate in app/services/cef/report.py.
+expected_verdict: needs_review
+max_validity_score: 0.49
+# It must not claim the run succeeded or failed on evidence it never had.
+forbidden_keywords:
+  - "completed successfully"
+  - "all activities completed"
+  - "run failed"
+required_queries:
+  - cef_agent_logs
+max_investigation_loops: 6
+model_response: |
+  ROOT_CAUSE: Undetermined — the run for conversation fixture-conv-missing could not be located.
+  cef_agent_logs found no job for this conversation in the available window; the only job present
+  (fixture-job-other) belongs to a different conversation, so this run's own activities and cubby
+  outcome could not be verified. Component logs reference only that unrelated job. There is not
+  enough evidence to confirm either success or failure of the requested run.
+  ROOT_CAUSE_CATEGORY: unknown
+  VALIDITY_SCORE: 0.2
+
+  NON_VALIDATED_CLAIMS:
+  - The requested run may have aged out of the job window, or the conversation_id in the alert may
+    be stale/incorrect.
+  - Re-run the QA with a corrected conversation_id or a wider agent-log lookup window to confirm.

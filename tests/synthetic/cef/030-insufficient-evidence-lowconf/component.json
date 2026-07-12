@@ -1,0 +1,7 @@
+{
+  "orchestrator": [
+    {"timestamp": "2026-07-12T11:05:10Z", "message": "time=\"2026-07-12T11:05:10Z\" level=info msg=dispatched activityId=a-plan jobId=fixture-job-other agentId=\"5df19be7:hiring-coach-qa\" component=api.handlers.dispatch"}
+  ],
+  "agent-runtime": [],
+  "ddc-s3-gateway": []
+}

@@ -1,0 +1,8 @@
+{
+  "conversation_id": "fixture-conv-other",
+  "job_id": "fixture-job-other",
+  "activities": [
+    {"activityId": "a-plan", "handlerName": "onAudio", "status": "completed", "startedAt": "2026-07-12T11:00:00Z", "endedAt": "2026-07-12T11:00:04Z"}
+  ],
+  "activity_logs": {}
+}

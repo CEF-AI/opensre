@@ -17,9 +17,22 @@ from pathlib import Path
 from typing import Any
 
 from app.pipeline.runners import run_investigation
+from app.services.cef.report import format_cef_qa_telegram
 from tests.synthetic.mock_cef_backend import CefScenario, FixtureCEFBackend, load_scenario
 
 SUITE_DIR = Path(__file__).resolve().parent
+
+# Verdict marker -> the header substring the CEF report emits for it (app/services/cef/report.py).
+_VERDICT_MARKERS = {"pass": "· PASS", "no_go": "· NO-GO", "needs_review": "· NEEDS REVIEW"}
+
+
+def _verdict(state: dict[str, Any]) -> str:
+    """The verdict the CEF report would render for this state (pass / no_go / needs_review)."""
+    header = format_cef_qa_telegram(state).splitlines()[0]
+    for name, marker in _VERDICT_MARKERS.items():
+        if marker in header:
+            return name
+    return "(none)"
 
 
 def _output_text(state: dict[str, Any]) -> str:
@@ -58,11 +71,26 @@ def score(scenario: CefScenario, state: dict[str, Any]) -> dict[str, Any]:
         "required_queries_called": required_queries.issubset(called),
         "no_forbidden_keywords": not any(k in text for k in forbidden_kws),
     }
+
+    # Confidence-gate checks (opt-in per scenario): the verdict the report would render, and a cap
+    # on validity_score. Together they regression-cover the NEEDS REVIEW gate end to end.
+    expected_verdict = str(ans.get("expected_verdict") or "").lower()
+    verdict = _verdict(state)
+    if expected_verdict:
+        checks["verdict_matches"] = verdict == expected_verdict
+    max_validity = ans.get("max_validity_score")
+    if isinstance(max_validity, int | float):
+        raw = state.get("validity_score")
+        score = float(raw) if isinstance(raw, int | float) else 1.0
+        checks["validity_within_cap"] = score <= float(max_validity)
+
     return {
         "scenario": scenario.scenario_id,
         "passed": all(checks.values()),
         "checks": checks,
         "category": category or "(none)",
+        "verdict": verdict,
+        "validity_score": state.get("validity_score"),
         "root_cause": str(state.get("root_cause") or "")[:220],
     }
 
@@ -84,7 +112,12 @@ def main(argv: list[str] | None = None) -> int:
     results = [run_one(d) for d in dirs]
     passed = sum(1 for r in results if r["passed"])
     for r in results:
-        print(f"[{'PASS' if r['passed'] else 'FAIL'}] {r['scenario']}  category={r['category']}")
+        vs = r["validity_score"]
+        vs_str = f"{float(vs):.0%}" if isinstance(vs, int | float) else "n/a"
+        print(
+            f"[{'PASS' if r['passed'] else 'FAIL'}] {r['scenario']}  "
+            f"category={r['category']}  verdict={r['verdict']}  validity={vs_str}"
+        )
         for name, ok in r["checks"].items():
             print(f"        {'ok' if ok else 'XX'}  {name}")
         if not r["passed"]:

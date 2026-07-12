@@ -69,6 +69,15 @@ ambient errors. This is the most important rule:
   Reconcile toward the run's outcome: completed run + transient infra error = PASS with a note. It is
   wrong to call a completed run failed because a shared model blipped during its window.
 
+INSUFFICIENT EVIDENCE — do not fabricate a verdict. If you cannot locate this run's own activities
+(no job resolves for the conversation_id, the only job in the window belongs to a different
+conversation, or the activities/cubby are simply missing), you CANNOT confirm pass or fail. Absence
+of evidence is NOT a failure — do not report NO-GO just because you could not find the run, and do
+not report PASS on a run you never saw. Instead say the outcome is undetermined, explain what was
+missing, and report LOW confidence (a low validity_score). Low-confidence verdicts are surfaced for
+human review rather than acted on automatically, so being honest about uncertainty is correct — an
+over-confident guess is worse than "needs review".
+
 Do NOT conclude from the agent logs alone that everything was perfect — still check the other
 components so you can NOTE degradation and, on a real failure, explain it. You read the raw lines and
 reason yourself; the tools only retrieve. Do not pattern-match a fixed error string.

@@ -1,0 +1,13 @@
+scenario_id: 030-insufficient-evidence-lowconf
+failure_mode: insufficient_evidence
+severity: high
+scenario_difficulty: 4
+# The run for the requested conversation_id cannot be located — the only job in the window belongs
+# to a DIFFERENT conversation. The correct behaviour is to report low confidence (undetermined),
+# NOT to guess PASS or NO-GO. This exercises the confidence gate end to end.
+adversarial_signals:
+  - requested_run_not_found
+  - unrelated_job_present
+available_evidence:
+  - cef_agent_logs
+  - cef_component_logs

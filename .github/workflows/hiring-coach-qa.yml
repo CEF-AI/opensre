@@ -47,6 +47,9 @@ jobs:
       HIRING_AGENT_ALIAS: ${{ matrix.alias }}
       CEF_CLUSTER: dragon1-testnet
       LLM_PROVIDER: ddcdragon # OSS model only
+      # Job-level so the investigate step (not just eval) can reach the CEF vault —
+      # else cef_agent_logs is unavailable during QA and only component logs are seen.
+      CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
       CEF_VAULT_ID: ${{ secrets.CEF_VAULT_ID }}
       CEF_AGENT_ID: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}:${{ matrix.alias }}
       CEF_AGENT_SERVICE_PUBKEY: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}
@@ -88,7 +91,6 @@ jobs:
       - name: Detect new release, upgrade QA vault, run eval (emit alerts)
         env:
           QA_EMIT_FILE: ${{ github.workspace }}/alerts.jsonl
-          CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
         run: |
           set -euo pipefail
           : > "$QA_EMIT_FILE"

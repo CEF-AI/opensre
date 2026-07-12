@@ -47,9 +47,6 @@ jobs:
       HIRING_AGENT_ALIAS: ${{ matrix.alias }}
       CEF_CLUSTER: dragon1-testnet
       LLM_PROVIDER: ddcdragon # OSS model only
-      # Job-level so the investigate step (not just eval) can reach the CEF vault —
-      # else cef_agent_logs is unavailable during QA and only component logs are seen.
-      CEF_WALLET_PATH: ${{ runner.temp }}/wallet.json
       CEF_VAULT_ID: ${{ secrets.CEF_VAULT_ID }}
       CEF_AGENT_ID: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}:${{ matrix.alias }}
       CEF_AGENT_SERVICE_PUBKEY: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}
@@ -86,7 +83,12 @@ jobs:
         run: uv sync --frozen --extra dev
 
       - name: Write QA wallet
-        run: printf '%s' "${{ secrets.CEF_WALLET_B64 }}" | base64 -d > "$RUNNER_TEMP/wallet.json"
+        # Export CEF_WALLET_PATH into $GITHUB_ENV so BOTH the eval and the OpenSRE investigate
+        # step can reach the CEF vault (else cef_agent_logs is unavailable and QA sees only
+        # component logs, not the run's own activities). runner.temp is invalid in job env.
+        run: |
+          printf '%s' "${{ secrets.CEF_WALLET_B64 }}" | base64 -d > "$RUNNER_TEMP/wallet.json"
+          echo "CEF_WALLET_PATH=$RUNNER_TEMP/wallet.json" >> "$GITHUB_ENV"
 
       - name: Detect new release, upgrade QA vault, run eval (emit alerts)
         env:

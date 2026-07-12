@@ -1,0 +1,8 @@
+scenario_id: 020-asr-activity-failed
+failure_mode: activity_failed
+severity: high
+scenario_difficulty: 2
+adversarial_signals: []
+available_evidence:
+  - cef_agent_logs
+  - cef_component_logs

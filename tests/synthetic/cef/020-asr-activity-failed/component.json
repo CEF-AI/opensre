@@ -1,0 +1,9 @@
+{
+  "orchestrator": [
+    {"timestamp": "2026-07-12T10:00:38Z", "message": "time=\"2026-07-12T10:00:38Z\" level=error msg=\"Inference failed\" component=api.handlers.inference error=\"all inference nodes failed for model \\\"whisper_large_v3_turbo\\\"\" jobId=fixture-job-failed modelName=whisper_large_v3_turbo"}
+  ],
+  "agent-runtime": [
+    {"timestamp": "2026-07-12T10:00:39Z", "message": "time=\"2026-07-12T10:00:39Z\" level=error msg=\"Agent execution failed\" component=agent.executor agentId=\"5df19be7:hiring-coach-qa\" error=\"chunk.process failed: ASR unavailable\""}
+  ],
+  "ddc-s3-gateway": []
+}

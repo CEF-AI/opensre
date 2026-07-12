@@ -1,0 +1,31 @@
+root_cause_category: healthy
+required_keywords:
+  - completed
+forbidden_categories:
+  - infrastructure
+  - unknown
+  - resource_exhaustion
+  - configuration_error
+  - code_defect
+# The verdict must explicitly rule out the inference red herring, not adopt it.
+ruling_out_keywords:
+  - completed
+required_queries:
+  - cef_agent_logs
+max_investigation_loops: 6
+model_response: |
+  ROOT_CAUSE: The run completed successfully — every agent activity reached status 'completed'
+  and the pipeline finalized (finalize done). The orchestrator's "no inference nodes available for
+  model whisper_large_v3_turbo" errors are a transient shared-platform signal that the run rode
+  through (the ASR still produced output and later stages completed); they did NOT fail this run.
+  The alert is a false positive.
+  ROOT_CAUSE_CATEGORY: healthy
+
+  VALIDATED_CLAIMS:
+  - All 6 activities for job fixture-job-healthy are status=completed, ending with finalize. [evidence: cef_agent_logs]
+  - The finalize activity logged "finalize done: analysis_runs status=completed". [evidence: cef_agent_logs]
+  - agent-runtime shows the finalize isolate handler completed. [evidence: cef_component_logs]
+
+  NON_VALIDATED_CLAIMS:
+  - The orchestrator inference "no nodes" errors were transient; the model fleet likely recovered
+    or a fallback node served the request, since the run completed.

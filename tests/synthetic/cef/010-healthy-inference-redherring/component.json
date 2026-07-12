@@ -1,0 +1,13 @@
+{
+  "orchestrator": [
+    {"timestamp": "2026-07-12T09:00:50Z", "message": "time=\"2026-07-12T09:00:50Z\" level=error msg=\"Inference failed\" component=api.handlers.inference error=\"no inference nodes available for model \\\"whisper_large_v3_turbo\\\"\" jobId= modelName=whisper_large_v3_turbo"},
+    {"timestamp": "2026-07-12T09:00:50Z", "message": "time=\"2026-07-12T09:00:50Z\" level=warning msg=\"Inference dispatch failed, trying next node\" component=gateway.inference endpoint=\"https://cere.zettabyte.space/api/public/v1/inference\""},
+    {"timestamp": "2026-07-12T09:00:52Z", "message": "time=\"2026-07-12T09:00:52Z\" level=info msg=dispatched activityId=a-map-0 agentId=\"5df19be7:hiring-coach-qa\" component=api.handlers.dispatch"}
+  ],
+  "agent-runtime": [
+    {"timestamp": "2026-07-12T09:02:08Z", "message": "time=\"2026-07-12T09:02:08Z\" level=info msg=\"isolate handler finalize completed\" agentId=\"5df19be7:hiring-coach-qa\""}
+  ],
+  "ddc-s3-gateway": [
+    {"timestamp": "2026-07-12T09:00:05Z", "message": "{\"level\":\"info\",\"method\":\"GET\",\"status\":200,\"uri\":\"/hiringcoach-public/scenarios/audio/heinrich_clarity_good.000.mp3\"}"}
+  ]
+}

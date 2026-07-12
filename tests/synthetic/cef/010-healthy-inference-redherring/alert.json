@@ -1,0 +1,16 @@
+{
+  "alert_name": "CEF hiring-coach QA (execution)",
+  "severity": "high",
+  "alert_source": "cef",
+  "commonAnnotations": {
+    "summary": "E2E execution QA of a hiring-coach run.",
+    "description": "QA of hiring-coach run conversation_id fixture-conv-healthy (clip HIA-C1, variant mp-test). Call get_cef_guidance topic investigation_procedure. Verify the run's own activities completed via cef_agent_logs, then sweep the platform components (orchestrator/agent-runtime/ddc-s3-gateway) with cef_component_logs, scoped to this run's vault/agent and time window. Execution health only — do NOT assess scores.",
+    "context_sources": "cef,grafana",
+    "variant": "mp-test",
+    "clip": "HIA-C1",
+    "cluster": "dragon1-testnet",
+    "model": "gemma4_31b",
+    "conversation_id": "fixture-conv-healthy",
+    "agent_models": "whisper_large_v3_turbo,gemma4_31b,eres2netv2-3dspeaker"
+  }
+}

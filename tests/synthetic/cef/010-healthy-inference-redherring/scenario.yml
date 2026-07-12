@@ -1,0 +1,12 @@
+scenario_id: 010-healthy-inference-redherring
+failure_mode: healthy
+severity: high
+scenario_difficulty: 3
+# The adversarial signal: a real orchestrator inference error is visible in the window, but the
+# run's own activities all completed — so it is a red herring, not this run's failure.
+adversarial_signals:
+  - orchestrator_inference_no_nodes_visible
+  - run_actually_completed
+available_evidence:
+  - cef_agent_logs
+  - cef_component_logs

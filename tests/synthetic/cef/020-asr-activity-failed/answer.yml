@@ -1,0 +1,26 @@
+# A real failure: the ASR chunk activity failed because whisper_large_v3_turbo was unavailable,
+# and the run never finalized. The agent MUST flag it (not call it healthy).
+forbidden_categories:
+  - healthy
+  - no_issue
+required_keywords:
+  - failed
+forbidden_keywords:
+  - "false positive"
+  - "completed successfully"
+  - "no failure"
+required_queries:
+  - cef_agent_logs
+max_investigation_loops: 6
+model_response: |
+  ROOT_CAUSE: The run failed. Activity a-map-0 (chunk.process) has status='failed' and the run
+  never finalized. Its ctx.log shows ASR failed because the whisper_large_v3_turbo model had no
+  inference nodes available (HTTP 500), corroborated by the orchestrator "all inference nodes
+  failed" error in the same window. The failure is a platform/inference cause, but it DID fail
+  this run (the activity failed and no finalize occurred).
+  ROOT_CAUSE_CATEGORY: infrastructure
+
+  VALIDATED_CLAIMS:
+  - Activity a-map-0 is status=failed; there is no finalize activity for job fixture-job-failed. [evidence: cef_agent_logs]
+  - The failed activity's ctx.log attributes it to ASR/whisper_large_v3_turbo being unavailable. [evidence: cef_agent_logs]
+  - The orchestrator logged "all inference nodes failed for model whisper_large_v3_turbo" in the run window. [evidence: cef_component_logs]

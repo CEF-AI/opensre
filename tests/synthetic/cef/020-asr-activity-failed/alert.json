@@ -1,0 +1,13 @@
+{
+  "alert_name": "CEF hiring-coach QA (execution)",
+  "severity": "high",
+  "alert_source": "cef",
+  "commonAnnotations": {
+    "summary": "E2E execution QA of a hiring-coach run.",
+    "description": "QA of hiring-coach run conversation_id fixture-conv-failed (clip HIA-C1, variant mp-test). Call get_cef_guidance topic investigation_procedure. Verify the run's own activities completed via cef_agent_logs, then sweep components with cef_component_logs scoped to this run's window. Execution health only.",
+    "context_sources": "cef,grafana",
+    "variant": "mp-test", "clip": "HIA-C1", "cluster": "dragon1-testnet", "model": "gemma4_31b",
+    "conversation_id": "fixture-conv-failed",
+    "agent_models": "whisper_large_v3_turbo,gemma4_31b,eres2netv2-3dspeaker"
+  }
+}

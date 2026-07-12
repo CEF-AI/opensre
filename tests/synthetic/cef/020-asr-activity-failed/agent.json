@@ -1,0 +1,13 @@
+{
+  "conversation_id": "fixture-conv-failed",
+  "job_id": "fixture-job-failed",
+  "activities": [
+    {"activityId": "a-plan", "handlerName": "onAudio", "status": "completed", "startedAt": "2026-07-12T10:00:00Z", "endedAt": "2026-07-12T10:00:04Z"},
+    {"activityId": "a-map-0", "handlerName": "chunk.process", "status": "failed", "startedAt": "2026-07-12T10:00:04Z", "endedAt": "2026-07-12T10:00:39Z"}
+  ],
+  "activity_logs": {
+    "a-map-0": [
+      {"timestamp": "2026-07-12T10:00:39Z", "message": "ctx.log ERROR: ASR failed for chunk 0: marketplace inference error: all inference nodes failed for model whisper_large_v3_turbo (HTTP 500)"}
+    ]
+  }
+}

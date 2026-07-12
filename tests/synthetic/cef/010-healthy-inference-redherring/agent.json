@@ -1,0 +1,20 @@
+{
+  "conversation_id": "fixture-conv-healthy",
+  "job_id": "fixture-job-healthy",
+  "activities": [
+    {"activityId": "a-plan", "handlerName": "onAudio", "status": "completed", "startedAt": "2026-07-12T09:00:00Z", "endedAt": "2026-07-12T09:00:04Z"},
+    {"activityId": "a-map-0", "handlerName": "chunk.process", "status": "completed", "startedAt": "2026-07-12T09:00:04Z", "endedAt": "2026-07-12T09:00:40Z"},
+    {"activityId": "a-map-1", "handlerName": "chunk.process", "status": "completed", "startedAt": "2026-07-12T09:00:40Z", "endedAt": "2026-07-12T09:01:12Z"},
+    {"activityId": "a-reduce", "handlerName": "analyze.reduce", "status": "completed", "startedAt": "2026-07-12T09:01:12Z", "endedAt": "2026-07-12T09:01:55Z"},
+    {"activityId": "a-enrich", "handlerName": "turn.enrich", "status": "completed", "startedAt": "2026-07-12T09:01:55Z", "endedAt": "2026-07-12T09:02:05Z"},
+    {"activityId": "a-finalize", "handlerName": "finalize", "status": "completed", "startedAt": "2026-07-12T09:02:05Z", "endedAt": "2026-07-12T09:02:08Z"}
+  ],
+  "activity_logs": {
+    "a-finalize": [
+      {"timestamp": "2026-07-12T09:02:08Z", "message": "finalize done: analysis_runs status=completed for conversation fixture-conv-healthy"}
+    ],
+    "a-map-0": [
+      {"timestamp": "2026-07-12T09:00:38Z", "message": "ASR chunk 0 transcribed ok"}
+    ]
+  }
+}

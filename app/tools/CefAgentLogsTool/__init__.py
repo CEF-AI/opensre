@@ -18,6 +18,12 @@ from app.tools._telemetry import report_run_error
 from app.tools.tool_decorator import tool
 
 _DEFAULT_LIMIT = 50
+# Resolving conversation_id -> job scans the agent's jobs and matches on job.context. The vault-api
+# jobs endpoint has no context filter and no working pagination (offset is ignored) — it returns the
+# most-recent up-to-`limit` jobs — so the lookup window must be generous enough to include the run's
+# job. Kept separate from `limit` (which bounds returned log lines), and truncation is surfaced, not
+# silently swallowed, if the job isn't within the window.
+_JOB_LOOKUP_LIMIT = 500
 
 
 class CefAgentLogsInput(BaseModel):
@@ -141,19 +147,28 @@ def cef_agent_logs(
     try:
         resolved_job = job_id
         if not resolved_job and conversation_id:
-            jobs_result = client.list_jobs(vault_id, agent_id, limit=limit)
+            jobs_result = client.list_jobs(vault_id, agent_id, limit=_JOB_LOOKUP_LIMIT)
             if not jobs_result.get("success"):
                 return _unavailable(jobs_result.get("error"))
             jobs = _list_field(jobs_result, "items")
             match = next((j for j in jobs if j.get("context") == conversation_id), None)
             if match is None:
-                # No job yet for this run — return the jobs so the caller can decide/wait.
+                # No job for this run in the scanned window. Distinguish "not created yet" from
+                # "beyond the lookup window" so the agent doesn't misread a truncation as absence.
+                truncated = len(jobs) >= _JOB_LOOKUP_LIMIT
                 return {
                     "source": "cef_agent_logs",
                     "available": True,
                     "conversation_id": conversation_id,
                     "job_id": None,
                     "jobs": jobs,
+                    "job_lookup_truncated": truncated,
+                    "note": (
+                        f"conversation not found among the {len(jobs)} most-recent jobs; more exist "
+                        "beyond the lookup window (retry with an explicit job_id)"
+                        if truncated
+                        else "no job exists yet for this conversation (it may still be dispatching)"
+                    ),
                 }
             resolved_job = match.get("jobId")
 

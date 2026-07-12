@@ -8,6 +8,7 @@ import pytest
 
 import app.tools.CefAgentLogsTool as mod
 from app.tools.CefAgentLogsTool import (
+    _JOB_LOOKUP_LIMIT,
     _cef_extract_params,
     _cef_is_available,
     cef_agent_logs,
@@ -28,8 +29,10 @@ class _FakeClient:
     def __init__(self, *, jobs: list[dict[str, Any]] | None = None) -> None:
         self._jobs = jobs if jobs is not None else [{"jobId": "J1", "context": "conv-1"}]
         self.closed = False
+        self.job_lookup_limit: int | None = None
 
-    def list_jobs(self, _vault: str, _agent: str, **_kwargs: Any) -> dict[str, Any]:
+    def list_jobs(self, _vault: str, _agent: str, **kwargs: Any) -> dict[str, Any]:
+        self.job_lookup_limit = kwargs.get("limit")
         return {"success": True, "data": {"items": self._jobs}}
 
     def list_activities(self, _vault: str, _job: str, **_kwargs: Any) -> dict[str, Any]:
@@ -73,6 +76,8 @@ def test_resolves_conversation_to_job_then_lists_activities(
     result = cef_agent_logs(conversation_id="conv-1", **_CREDS)
     assert result["available"] is True
     assert result["job_id"] == "J1"
+    # job resolution must scan a generous window (endpoint has no context filter / pagination)
+    assert client.job_lookup_limit == _JOB_LOOKUP_LIMIT
     # returns raw activities; the tool does NOT pick a "failed stage"
     assert result["activities"][0]["status"] == "failed"
     assert "logs" not in result
@@ -94,6 +99,20 @@ def test_no_job_for_conversation_returns_jobs_and_null_job(monkeypatch: pytest.M
     assert result["available"] is True
     assert result["job_id"] is None
     assert result["jobs"] == [{"jobId": "J9", "context": "other-conv"}]
+    # small window, no match -> genuinely not created yet, not a truncation
+    assert result["job_lookup_truncated"] is False
+    assert "no job exists yet" in result["note"]
+
+
+def test_job_beyond_lookup_window_flags_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
+    # window is full (>= limit) and the conversation isn't in it -> must flag truncation,
+    # never silently report the run as absent.
+    full = [{"jobId": f"J{i}", "context": f"c{i}"} for i in range(_JOB_LOOKUP_LIMIT)]
+    _patch(monkeypatch, _FakeClient(jobs=full))
+    result = cef_agent_logs(conversation_id="way-older-conv", **_CREDS)
+    assert result["job_id"] is None
+    assert result["job_lookup_truncated"] is True
+    assert "beyond the lookup window" in result["note"]
 
 
 def test_service_error_is_surfaced(monkeypatch: pytest.MonkeyPatch) -> None:

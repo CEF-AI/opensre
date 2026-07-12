@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hmac
+import os
+
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ValidationError
@@ -28,13 +31,20 @@ _bearer = HTTPBearer(auto_error=True)
 async def require_auth(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> None:
-    """Gate the microservice behind a verified JWT (Clerk JWKS).
+    """Gate the microservice behind a bearer token — never open (Sergei's constraint).
 
-    Sergei's constraint: a hosted investigate API must not let anyone fire investigations. The
-    health endpoints stay open; every investigate call needs a valid bearer token.
+    Two accepted schemes, so both web users and CEF/service callers can authenticate:
+      1. A shared service token: if ``OPENSRE_API_TOKEN`` is set, a matching ``Bearer`` is accepted
+         (constant-time compare). This is what CEF testers use — they don't have Clerk JWTs.
+      2. Otherwise the bearer is verified as a Clerk JWT (JWKS).
+    Health endpoints stay open; every investigate call needs a valid bearer.
     """
+    token = credentials.credentials
+    service_token = os.getenv("OPENSRE_API_TOKEN", "").strip()
+    if service_token and hmac.compare_digest(token, service_token):
+        return
     try:
-        await verify_jwt_async(credentials.credentials)
+        await verify_jwt_async(token)
     except JWTVerificationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 

@@ -9,6 +9,7 @@ forked investigation logic.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -24,16 +25,22 @@ from app.services.cef.report import (
 
 
 class CefCreds(BaseModel):
-    """Signed vault-api access for one tenant's CEF agent. Provide wallet_json OR wallet_path."""
+    """Signed vault-api access for one tenant's CEF agent. Provide wallet_json OR wallet_path.
 
-    vault_base_url: str
-    vault_id: str
+    Every field is optional here: whatever the caller omits falls back to the server's environment
+    (CEF_VAULT_BASE_URL, CEF_VAULT_ID, CEF_AGENT_ID, CEF_WALLET_*, CEF_CLUSTER) in ``run_cef_qa``. So a
+    caller can send just the vault/agent + wallet and let the server supply the shared vault_base_url
+    and cluster, or send everything.
+    """
+
+    vault_base_url: str = ""
+    vault_id: str = ""
     agent_id: str = ""
     # In-memory keyring JSON (preferred for the microservice; key never touches disk).
     wallet_json: str = ""
     wallet_path: str = ""
     wallet_password: str = ""
-    cluster: str = "dragon1-testnet"
+    cluster: str = ""  # falls back to CEF_CLUSTER, then dragon1-testnet
 
 
 class GrafanaCreds(BaseModel):
@@ -61,7 +68,8 @@ class CefQaRequest(BaseModel):
     agent_models: str = ""
     severity: str = "high"
     description: str = ""
-    cef: CefCreds
+    # Optional: any field omitted here (or the whole block) falls back to the server env.
+    cef: CefCreds | None = None
     grafana: GrafanaCreds | None = None
     deliver_telegram: TelegramTarget | None = None
 
@@ -118,7 +126,37 @@ def build_cef_resolved_integrations(
     return classify_integrations(records)
 
 
-def _build_alert(req: CefQaRequest) -> dict[str, Any]:
+def _merge_with_env(req: CefQaRequest) -> tuple[CefCreds, GrafanaCreds | None]:
+    """Fill any CEF / Grafana field the caller omitted from the server environment.
+
+    Per-field: the request value wins, else the server env supplies it. This lets a caller send just
+    ``conversation_id`` + ``vault_id`` + ``agent_id`` + wallet and let the box provide the shared
+    ``vault_base_url``, ``cluster`` and Grafana observability. Env keys: CEF_VAULT_BASE_URL,
+    CEF_VAULT_ID, CEF_AGENT_ID, CEF_WALLET_JSON/PATH/PASSWORD, CEF_CLUSTER, GRAFANA_INSTANCE_URL,
+    GRAFANA_READ_TOKEN.
+    """
+    c = req.cef or CefCreds()
+    cef = CefCreds(
+        vault_base_url=c.vault_base_url or os.getenv("CEF_VAULT_BASE_URL", ""),
+        vault_id=c.vault_id or os.getenv("CEF_VAULT_ID", ""),
+        agent_id=c.agent_id or os.getenv("CEF_AGENT_ID", ""),
+        wallet_json=c.wallet_json or os.getenv("CEF_WALLET_JSON", ""),
+        wallet_path=c.wallet_path or os.getenv("CEF_WALLET_PATH", ""),
+        wallet_password=c.wallet_password or os.getenv("CEF_WALLET_PASSWORD", ""),
+        cluster=c.cluster or os.getenv("CEF_CLUSTER", "") or "dragon1-testnet",
+    )
+    grafana = req.grafana
+    if grafana is None:
+        endpoint = os.getenv("GRAFANA_INSTANCE_URL", "") or os.getenv("GRAFANA_ENDPOINT", "")
+        if endpoint:
+            grafana = GrafanaCreds(
+                endpoint=endpoint,
+                api_key=os.getenv("GRAFANA_READ_TOKEN", "") or os.getenv("GRAFANA_API_KEY", ""),
+            )
+    return cef, grafana
+
+
+def _build_alert(req: CefQaRequest, *, has_grafana: bool) -> dict[str, Any]:
     """Assemble the CEF investigation alert (alert_source=cef routes the beautified report)."""
     annotations = {
         "summary": "E2E execution QA of a hiring-coach run.",
@@ -128,7 +166,7 @@ def _build_alert(req: CefQaRequest) -> dict[str, Any]:
             "topic investigation_procedure. Verify the run's own activities via cef_agent_logs, "
             "then sweep components with cef_component_logs scoped to this run's window."
         ),
-        "context_sources": "cef,grafana" if req.grafana else "cef",
+        "context_sources": "cef,grafana" if has_grafana else "cef",
         "conversation_id": req.conversation_id,
     }
     for key in ("variant", "clip", "cluster", "model", "agent_models"):
@@ -154,8 +192,11 @@ def run_cef_qa(req: CefQaRequest) -> CefQaResult:
     from app.agent.stages.publish_findings.context.build import build_report_context
     from app.pipeline.runners import run_investigation
 
-    resolved = build_cef_resolved_integrations(req.cef, req.grafana)
-    state = run_investigation(_build_alert(req), resolved_integrations=resolved)
+    cef, grafana = _merge_with_env(req)
+    resolved = build_cef_resolved_integrations(cef, grafana)
+    state = run_investigation(
+        _build_alert(req, has_grafana=grafana is not None), resolved_integrations=resolved
+    )
 
     ctx: dict[str, Any] = dict(build_report_context(state))  # enriches claims with [E#] citations
     subtitle, footer = _subtitle_footer(req)
@@ -179,7 +220,9 @@ def run_cef_qa(req: CefQaRequest) -> CefQaResult:
         not_verified=_claim_texts(ctx.get("non_validated_claims")),
         actions=[
             str(a)
-            for a in (ctx.get("investigation_recommendations") or ctx.get("remediation_steps") or [])
+            for a in (
+                ctx.get("investigation_recommendations") or ctx.get("remediation_steps") or []
+            )
             if str(a).strip()
         ],
         report=report_text,

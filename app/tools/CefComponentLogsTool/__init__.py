@@ -10,7 +10,7 @@ orchestrator's "all inference nodes failed for model ..." or the s3-gateway's au
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -79,6 +79,8 @@ def _cef_grafana_source(sources: dict[str, dict]) -> dict:
 
 
 def _cef_logs_is_available(sources: dict[str, dict]) -> bool:
+    if (sources.get("cef") or {}).get("_backend"):
+        return True
     grafana = _cef_grafana_source(sources)
     return bool(grafana.get("grafana_endpoint") or grafana.get("endpoint"))
 
@@ -94,6 +96,8 @@ def _cef_logs_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "cluster": cef.get("cluster") or _DEFAULT_CLUSTER,
         "vault_id": cef.get("vault_id", ""),
         "agent_id": cef.get("agent_id", ""),
+        # Fixture backend for synthetic scenarios (mirrors eks_backend/datadog_backend).
+        "cef_backend": cef.get("_backend"),
     }
 
 
@@ -158,6 +162,7 @@ def _build_query(
         "cluster",
         "vault_id",
         "agent_id",
+        "cef_backend",
     ),
     is_available=_cef_logs_is_available,
     extract_params=_cef_logs_extract_params,
@@ -176,9 +181,26 @@ def cef_component_logs(
     cluster: str = _DEFAULT_CLUSTER,
     vault_id: str = "",
     agent_id: str = "",
+    cef_backend: Any = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Retrieve CEF component logs from Loki. Pure retrieval; the agent does the analysis."""
+    """Retrieve CEF component logs from Loki. Pure retrieval; the agent does the analysis.
+
+    When ``cef_backend`` is provided (a FixtureCEFBackend from the synthetic harness) the call
+    short-circuits and returns the backend's canned lines — no live Grafana calls.
+    """
+    if cef_backend is not None:
+        return cast(
+            "dict[str, Any]",
+            cef_backend.component_logs(
+                service=service,
+                time_range_minutes=time_range_minutes,
+                contains=contains,
+                level=level,
+                tenant_scoped=tenant_scoped,
+                limit=limit,
+            ),
+        )
     if not grafana_endpoint:
         return {"source": "cef", "available": False, "error": "Grafana is not configured."}
     if service not in _NAMESPACE_BY_SERVICE:

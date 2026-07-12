@@ -8,7 +8,7 @@ resolve a run's job, list its activities, then fetch a specific activity's logs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,7 @@ from app.services.cef.client import CefVaultClient
 from app.services.cef.wallet_signer import signer_from_file
 from app.tools._telemetry import report_run_error
 from app.tools.tool_decorator import tool
+from app.tools.utils.availability import cef_available_or_backend
 
 _DEFAULT_LIMIT = 50
 # Resolving conversation_id -> job scans the agent's jobs and matches on job.context. The vault-api
@@ -73,6 +74,8 @@ def _cef_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "agent_id": cef.get("agent_id", ""),
         "wallet_path": cef.get("wallet_path", ""),
         "wallet_password": cef.get("wallet_password", ""),
+        # Fixture backend for synthetic scenarios (mirrors eks_backend/datadog_backend).
+        "cef_backend": cef.get("_backend"),
     }
 
 
@@ -112,8 +115,15 @@ def _unavailable(error: str | None) -> dict[str, Any]:
     ],
     input_model=CefAgentLogsInput,
     output_model=CefAgentLogsOutput,
-    injected_params=("vault_base_url", "vault_id", "agent_id", "wallet_path", "wallet_password"),
-    is_available=_cef_is_available,
+    injected_params=(
+        "vault_base_url",
+        "vault_id",
+        "agent_id",
+        "wallet_path",
+        "wallet_password",
+        "cef_backend",
+    ),
+    is_available=cef_available_or_backend,
     extract_params=_cef_extract_params,
 )
 def cef_agent_logs(
@@ -126,9 +136,24 @@ def cef_agent_logs(
     agent_id: str = "",
     wallet_path: str = "",
     wallet_password: str = "",
+    cef_backend: Any = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Retrieve CEF agent jobs/activities/logs. Pure retrieval; the agent does the analysis."""
+    """Retrieve CEF agent jobs/activities/logs. Pure retrieval; the agent does the analysis.
+
+    When ``cef_backend`` is provided (a FixtureCEFBackend from the synthetic harness) the call
+    short-circuits and returns the backend's canned response — no live vault-api calls.
+    """
+    if cef_backend is not None:
+        return cast(
+            "dict[str, Any]",
+            cef_backend.agent_logs(
+                conversation_id=conversation_id,
+                job_id=job_id,
+                activity_id=activity_id,
+                limit=limit,
+            ),
+        )
     if not (vault_base_url and vault_id and wallet_path):
         return _unavailable("CEF vault is not configured.")
     try:

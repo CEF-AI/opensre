@@ -30,6 +30,18 @@ def eks_available_or_backend(sources: dict[str, dict]) -> bool:
     return bool(eks.get("connection_verified") or eks.get("_backend"))
 
 
+def cef_available_or_backend(sources: dict[str, dict]) -> bool:
+    """Available when real CEF vault credentials are present OR a fixture backend is injected.
+
+    Used by the CEF tool wrappers (cef_agent_logs, cef_clip_history) whose
+    ``extract_params`` can delegate to a mock ``cef_backend`` for synthetic tests.
+    """
+    cef = sources.get("cef", {})
+    if cef.get("_backend"):
+        return True
+    return bool(cef.get("vault_base_url") and cef.get("vault_id") and cef.get("wallet_path"))
+
+
 def datadog_available_or_backend(sources: dict[str, dict]) -> bool:
     """Available when real Datadog credentials are present OR a fixture backend is injected.
 

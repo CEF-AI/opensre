@@ -1,0 +1,17 @@
+{
+  "conversation_id": "fixture-conv-noisypass",
+  "job_id": "fixture-job-noisypass",
+  "activities": [
+    {"activityId": "a-audio", "handlerName": "onAudio", "status": "completed", "startedAt": "2026-07-12T19:39:50Z", "endedAt": "2026-07-12T19:39:54Z"},
+    {"activityId": "a-chunk-0", "handlerName": "onChunk", "status": "completed", "startedAt": "2026-07-12T19:39:54Z", "endedAt": "2026-07-12T19:40:02Z"},
+    {"activityId": "a-chunk-1", "handlerName": "onChunk", "status": "completed", "startedAt": "2026-07-12T19:40:02Z", "endedAt": "2026-07-12T19:40:10Z"},
+    {"activityId": "a-reduce", "handlerName": "onReduce", "status": "completed", "startedAt": "2026-07-12T19:40:10Z", "endedAt": "2026-07-12T19:40:22Z"},
+    {"activityId": "a-turn-0", "handlerName": "onTurn", "status": "completed", "startedAt": "2026-07-12T19:40:22Z", "endedAt": "2026-07-12T19:40:27Z"},
+    {"activityId": "a-finalize", "handlerName": "onFinalize", "status": "completed", "startedAt": "2026-07-12T19:40:27Z", "endedAt": "2026-07-12T19:40:31Z"}
+  ],
+  "activity_logs": {
+    "a-finalize": [
+      {"timestamp": "2026-07-12T19:40:31Z", "message": "onFinalize done: analysis_runs status=completed for conversation fixture-conv-noisypass"}
+    ]
+  }
+}

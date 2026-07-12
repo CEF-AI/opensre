@@ -1,0 +1,15 @@
+{
+  "orchestrator": [
+    {"timestamp": "2026-07-12T19:41:10Z", "message": "time=\"2026-07-12T19:41:10Z\" level=error msg=\"cubby query failed\" component=cubby.query error=\"no such column: human_score\" jobId=some-other-job-9f21 agentId=\"5df19be7:hiring-coach-lab2\""},
+    {"timestamp": "2026-07-12T19:41:12Z", "message": "time=\"2026-07-12T19:41:12Z\" level=error msg=\"cubby query failed\" component=cubby.query error=\"no such column: human_score\" jobId=some-other-job-4c88 agentId=\"5df19be7:hiring-coach-lab2\""},
+    {"timestamp": "2026-07-12T19:48:59Z", "message": "time=\"2026-07-12T19:48:59Z\" level=error msg=\"Inference failed\" component=api.handlers.inference error=\"502 Bad Gateway from all inference nodes for model \\\"whisper_large_v3_turbo\\\"\" jobId=yet-another-job-7e0a modelName=whisper_large_v3_turbo"}
+  ],
+  "agent-runtime": [
+    {"timestamp": "2026-07-12T19:40:31Z", "message": "time=\"2026-07-12T19:40:31Z\" level=info msg=\"isolate handler onFinalize completed\" agentId=\"5df19be7:hiring-coach-qa\""}
+  ],
+  "ddc-s3-gateway": [
+    {"timestamp": "2026-07-12T19:14:56Z", "message": "{\"level\":\"info\",\"method\":\"GET\",\"status\":403,\"uri\":\"/vault-2b6b87b67e92fd2bd9106048376b2934\"}"},
+    {"timestamp": "2026-07-12T19:15:31Z", "message": "{\"level\":\"info\",\"method\":\"GET\",\"status\":403,\"uri\":\"/vault-2b6b87b67e92fd2bd9106048376b2934\"}"},
+    {"timestamp": "2026-07-12T19:39:52Z", "message": "{\"level\":\"info\",\"method\":\"GET\",\"status\":200,\"uri\":\"/hiringcoach-public/scenarios/audio/HIA-A1.000.mp3\"}"}
+  ]
+}

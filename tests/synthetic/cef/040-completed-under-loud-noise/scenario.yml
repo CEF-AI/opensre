@@ -1,0 +1,18 @@
+scenario_id: 040-completed-under-loud-noise
+failure_mode: healthy
+severity: high
+scenario_difficulty: 5
+# Reproduces a real production mis-verdict (conv e301411d, 2026-07-12): the run's OWN activities all
+# completed (onFinalize done), but the component window is full of LOUD, unrelated errors — a
+# 'human_score' cubby schema error on a different job, S3 403s on a different vault, and a whisper
+# 502 for another job. The agent must ground on the run's own completed activities and return PASS,
+# NOT get distracted by the ambient noise and hedge to NEEDS REVIEW / NO-GO.
+adversarial_signals:
+  - loud_unrelated_component_errors
+  - human_score_schema_error_other_job
+  - s3_403_other_vault
+  - whisper_502_other_job
+  - run_actually_completed
+available_evidence:
+  - cef_agent_logs
+  - cef_component_logs

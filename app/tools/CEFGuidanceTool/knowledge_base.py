@@ -69,6 +69,37 @@ ambient errors. This is the most important rule:
   Reconcile toward the run's outcome: completed run + transient infra error = PASS with a note. It is
   wrong to call a completed run failed because a shared model blipped during its window.
 
+GROUND ON THE RUN'S OWN ACTIVITIES FIRST — not optional. Retrieve cef_agent_logs for this
+conversation_id and read EVERY activity's status BEFORE you weigh any component / inference / schema
+log. If every activity is 'completed' (ending with onFinalize/finalize done), the run SUCCEEDED:
+report PASS at HIGH confidence and stop escalating. No volume or severity of component-log errors can
+turn a completed run into NO-GO or NEEDS REVIEW — component logs may only add a degradation NOTE.
+Never say "no logs for this conversation" while the run's activities are sitting right there in
+cef_agent_logs: component logs are not conversation-scoped by design, so their silence about a
+conversation id means nothing.
+
+TWO DIFFERENT OUTCOMES, DO NOT CONFLATE THEM:
+  (a) cef_agent_logs RETURNED this run's activities and they are all completed -> high-confidence PASS.
+  (b) cef_agent_logs did NOT return this run's activities (no job resolves for the conversation_id,
+      or the only jobs belong to OTHER conversations) -> you have NOT confirmed the outcome. This is
+      the INSUFFICIENT EVIDENCE case below: LOW confidence (validity_score well under 0.5) / NEEDS
+      REVIEW. Absence of the run is NEVER a NO-GO and NEVER a PASS — a missing run is not a failed
+      run. Do not say "run never finalized" or "run failed" about a run you could not even locate.
+      A job that carries a DIFFERENT conversation_id than the one you were asked about is NOT your
+      run: never read its activities, and never read its lack of a finalize, as your run's outcome —
+      that some other conversation only reached a-plan tells you nothing about yours. When your run
+      is unlocatable, the ONLY correct answer is: undetermined, low confidence, NEEDS REVIEW.
+The high-confidence, don't-lower-it-for-noise stance applies ONLY to case (a) — a run whose own
+activities you actually retrieved and confirmed complete.
+
+NOISE IS NOT THIS RUN'S FAILURE. Component / inference / cubby-schema errors that reference a
+DIFFERENT job, vault, model, or conversation are not this run's evidence. Do NOT cite them as the
+verdict and do NOT lower your confidence because of them — "I found alarming errors elsewhere in the
+window" is not "this run failed". Your confidence must track whether you confirmed THIS run's own
+outcome: activities all completed -> HIGH-confidence PASS; genuinely could not retrieve the run's own
+activities/cubby -> LOW confidence / NEEDS REVIEW (see below). A loud, unrelated error must never
+lower confidence on a run whose own activities you have confirmed complete.
+
 INSUFFICIENT EVIDENCE — do not fabricate a verdict. If you cannot locate this run's own activities
 (no job resolves for the conversation_id, the only job in the window belongs to a different
 conversation, or the activities/cubby are simply missing), you CANNOT confirm pass or fail. Absence

@@ -1,0 +1,42 @@
+# The run completed (all 6 activities completed, onFinalize done) — it PASSED. The loud component
+# errors belong to OTHER jobs/vaults/models and are not this run's failure. The agent must anchor on
+# the run's own activities and return a high-confidence PASS, not hedge on the ambient noise.
+expected_verdict: pass
+root_cause_category: healthy
+required_keywords:
+  - completed
+forbidden_categories:
+  - infrastructure
+  - code_defect
+  - configuration_error
+  - resource_exhaustion
+  - unknown
+# It must not treat the run as unresolved/failed or blame the unrelated schema/gateway noise.
+forbidden_keywords:
+  - "needs review"
+  - "inconclusive"
+  - "no logs were found"
+  - "could not confirm"
+ruling_out_keywords:
+  - completed
+required_queries:
+  - cef_agent_logs
+max_investigation_loops: 6
+model_response: |
+  ROOT_CAUSE: The run for conversation fixture-conv-noisypass completed successfully — all 6
+  activities (onAudio → onChunk ×2 → onReduce → onTurn → onFinalize) are status='completed' and the
+  pipeline finalized (analysis_runs status=completed). The alert is a false positive. The component
+  window contains alarming errors — a 'no such column: human_score' cubby error, S3 403s, and a
+  whisper_large_v3_turbo 502 — but every one of them references a DIFFERENT job/vault/model, not this
+  run. Per verdict precedence, a completed run is not a failure; those are at most ambient
+  observations about other work.
+  ROOT_CAUSE_CATEGORY: healthy
+  VALIDITY_SCORE: 0.95
+
+  VALIDATED_CLAIMS:
+  - All 6 activities for job fixture-job-noisypass are status=completed, ending with onFinalize. [evidence: cef_agent_logs]
+  - onFinalize logged "analysis_runs status=completed for conversation fixture-conv-noisypass". [evidence: cef_agent_logs]
+
+  NON_VALIDATED_CLAIMS:
+  - The 'human_score' schema errors and whisper 502 belong to other jobs and did not affect this run,
+    but the platform team may still want to look at them separately.

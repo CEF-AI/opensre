@@ -26,25 +26,29 @@ on:
     - cron: "*/15 * * * *" # poll every 15 min for a new published version
   workflow_dispatch: {} # manual trigger
 
-concurrency:
-  group: hiring-coach-qa
-  cancel-in-progress: false # never cancel an in-flight QA run
-
 jobs:
   qa:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # QA every agent connected to the QA vault (one job per alias, in parallel).
+    strategy:
+      fail-fast: false
+      matrix:
+        alias: [hiring-coach-lab2, hiring-coach-qa]
+    concurrency:
+      group: hiring-coach-qa-${{ matrix.alias }}
+      cancel-in-progress: false # never cancel an in-flight QA run for this alias
     env:
       VAULT_URL: https://vault-api.compute.test.ddcdragon.com
       CEF_VAULT_BASE_URL: https://vault-api.compute.test.ddcdragon.com
       MARKETPLACE_URL: https://agent-marketplace.compute.test.ddcdragon.com
       GAR_URL: https://gar.compute.test.ddcdragon.com/api/v1
       GRAFANA_INSTANCE_URL: https://dashboards.cere.io
-      HIRING_AGENT_ALIAS: hiring-coach-qa
+      HIRING_AGENT_ALIAS: ${{ matrix.alias }}
       CEF_CLUSTER: dragon1-testnet
       LLM_PROVIDER: ddcdragon # OSS model only
       CEF_VAULT_ID: ${{ secrets.CEF_VAULT_ID }}
-      CEF_AGENT_ID: ${{ secrets.CEF_AGENT_ID }}
+      CEF_AGENT_ID: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}:${{ matrix.alias }}
       CEF_AGENT_SERVICE_PUBKEY: ${{ secrets.CEF_AGENT_SERVICE_PUBKEY }}
       CEF_WALLET_PASSWORD: ${{ secrets.CEF_WALLET_PASSWORD }}
       GRAFANA_READ_TOKEN: ${{ secrets.GRAFANA_READ_TOKEN }}

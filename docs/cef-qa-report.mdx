@@ -1,0 +1,82 @@
+---
+title: CEF QA report
+description: How OpenSRE reports a hiring-coach QA verdict — the PASS / NO-GO / NEEDS REVIEW gate, confidence, and report layout.
+---
+
+When OpenSRE finishes a [CEF hiring-coach QA](/cef) investigation, it posts a compact,
+scannable verdict to your chat channel (Telegram today). This page explains how to read that
+report — the verdict, the confidence gate, and each section.
+
+## Verdicts
+
+The verdict is OpenSRE's call on whether the run under test is healthy. It is decided from the
+run's **own** outcome (its agent activities and cubby status), never from ambient platform noise
+in the same time window.
+
+| Verdict | Meaning |
+| --- | --- |
+| 🟢 **PASS** | The run succeeded — every activity completed and the pipeline finalized. Errors from shared infrastructure that the run rode through are noted, not counted against it. |
+| 🔴 **NO-GO** | The run did not succeed — an activity failed, the run never finalized, or its recorded status is failed/missing. The report explains why. |
+| 🟡 **NEEDS REVIEW** | OpenSRE could not reach a confident verdict (see [Confidence](#confidence)). The provisional call is shown, but a human should look before acting. |
+
+## Confidence
+
+Every verdict carries a confidence percentage, shown next to the run details:
+
+```
+confidence: 86% (high)
+```
+
+Confidence reflects how well the evidence supports the conclusion. It bands as **high** (80%+),
+**medium** (50–79%), or **low** (below 50%).
+
+When confidence is **low**, the report does not assert a hard PASS or NO-GO. It reports
+**🟡 NEEDS REVIEW**, shows the provisional verdict, and adds a line telling you to review the
+evidence first:
+
+```
+🟡  hiring-coach QA · NEEDS REVIEW
+────────────────────────────────────
+E040 → E039 · HIA-C1 · testnet  ·  confidence: 35% (low)
+
+⚠ Low confidence — provisional verdict NO-GO. Review the evidence before acting.
+```
+
+This happens when the evidence is genuinely inconclusive — for example, the run for the requested
+conversation cannot be located, or the signals conflict. Absence of evidence is never treated as a
+failure: OpenSRE would rather flag uncertainty than guess.
+
+## Report layout
+
+Below the verdict and confidence line, the report is ordered so the most load-bearing information
+comes first:
+
+- **Root cause** — one plain-language sentence: what happened and why.
+- **Findings** — the claims OpenSRE confirmed from evidence. Each carries a citation such as
+  `[E1, E2]` pointing at the evidence it rests on.
+- **Not verified** — inferred or likely explanations that were *not* confirmed. Kept separate from
+  findings so you can tell fact from inference at a glance.
+- **Do** — recommended next actions, in order, when there are any.
+
+Example of a clean pass:
+
+```
+🟢  hiring-coach QA · PASS
+────────────────────────────────────
+E040 → E039 · HIA-C1 · testnet · gemma4_31b  ·  confidence: 92% (high)
+
+Run completed — all 6 activities reached status=completed and the pipeline finalized.
+
+FINDINGS
+  • all 6 activities status=completed, ending with finalize  [E1]
+  • finalize logged analysis_runs status=completed  [E1]
+
+NOT VERIFIED
+  • inference 'no nodes' errors were transient / a fallback node served the request
+```
+
+## Delivery
+
+Reports are posted to Telegram when the Telegram integration is configured (bot token + chat id).
+Long reports are truncated to Telegram's message limit. See
+[Telegram](/messaging/telegram) for setup and [CEF](/cef) for the QA integration itself.

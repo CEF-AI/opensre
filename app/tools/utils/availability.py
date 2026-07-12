@@ -39,7 +39,11 @@ def cef_available_or_backend(sources: dict[str, dict]) -> bool:
     cef = sources.get("cef", {})
     if cef.get("_backend"):
         return True
-    return bool(cef.get("vault_base_url") and cef.get("vault_id") and cef.get("wallet_path"))
+    return bool(
+        cef.get("vault_base_url")
+        and cef.get("vault_id")
+        and (cef.get("wallet_path") or cef.get("wallet_json"))
+    )
 
 
 def datadog_available_or_backend(sources: dict[str, dict]) -> bool:

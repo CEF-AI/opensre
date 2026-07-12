@@ -1,0 +1,88 @@
+---
+title: Run CEF QA (CLI & API)
+description: Run a hiring-coach QA investigation two ways — the opensre cef-qa CLI, or the authenticated POST /investigate microservice — from one shared core.
+---
+
+OpenSRE runs a hiring-coach [QA investigation](/cef-qa-report) two ways, from the **same core** so
+the verdict is identical either way:
+
+| Surface | Command | Credentials |
+| --- | --- | --- |
+| CLI | `opensre cef-qa --input-json '{…}'` | from the request JSON (or env) |
+| Microservice | `POST /investigate` (Bearer auth) | from the request body, per tenant |
+
+Use the CLI for local/one-off runs and CI; use the microservice when a hosted service should QA
+many teams' vaults — each caller passes their own vault, so the server holds no credentials.
+
+## The request
+
+Both surfaces take the same fields:
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `conversation_id` | ✓ | Which run to QA |
+| `cef.vault_base_url`, `cef.vault_id` | ✓ | The vault to read from |
+| `cef.agent_id` | | The hiring-coach agent `<pubkey>:<alias>` |
+| `cef.wallet_json` **or** `cef.wallet_path` | ✓ | Vault access — inline keyring JSON (held in memory) or a file path |
+| `cef.wallet_password`, `cef.cluster` | | Wallet password; DDC cluster |
+| `grafana.endpoint`, `grafana.api_key` | | Enables component/inference logs (richer "why") |
+| `clip`, `variant`, `model`, `agent_models` | | Report context + which models to check |
+| `deliver_telegram.bot_token`, `.chat_id` | | Also post the report to Telegram |
+
+## CLI
+
+```bash
+opensre cef-qa --input-json '{
+  "conversation_id": "d05225a7-…",
+  "clip": "HIA-C1", "model": "gemma4_31b",
+  "cef": {
+    "vault_base_url": "https://vault-api.compute.test.ddcdragon.com",
+    "vault_id": "v-2b6b…", "agent_id": "5df19be7…:hiring-coach-qa",
+    "wallet_path": "/path/to/wallet.json", "wallet_password": "…"
+  }
+}'
+```
+
+It prints the beautified report and the verdict. Add `--output result.json` for the full result, or
+`--input request.json` / `--input -` to read the request from a file or stdin.
+
+## Microservice
+
+```bash
+curl -sS https://<host>/investigate \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conversation_id": "d05225a7-…",
+    "cef": { "vault_base_url": "https://vault-api…", "vault_id": "v-2b6b…",
+             "agent_id": "…:hiring-coach-qa", "wallet_json": "{…keyring json…}",
+             "wallet_password": "…" }
+  }'
+```
+
+The endpoint is **JWT-authenticated** — a valid bearer token is required, so it is not open to
+anyone. It returns the verdict as JSON:
+
+```json
+{
+  "verdict": "needs_review",
+  "confidence": "low",
+  "validity_score": 0.35,
+  "root_cause": "…",
+  "findings": ["…"],
+  "not_verified": ["…"],
+  "actions": ["…"],
+  "report": "🟡  hiring-coach QA · NEEDS REVIEW\n…"
+}
+```
+
+If `deliver_telegram` is supplied, the report is also posted to that chat; otherwise it is only
+returned in the response.
+
+## A note on credentials
+
+Passing `wallet_json` keeps the key in memory for the request only — it is never written to disk on
+the server. Still, a wallet can read *and* write the vault, so treat it as sensitive. The cleaner
+long-term option is a **read-only delegated token** instead of the wallet (once enabled on the CEF
+stack) — same request, just a scoped credential. See [CEF](/cef) for vault setup and
+[CEF QA report](/cef-qa-report) for how to read the result.

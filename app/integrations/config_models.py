@@ -65,6 +65,9 @@ class CefIntegrationConfig(StrictConfigModel):
     vault_id: str = ""
     agent_id: str = ""
     wallet_path: str = ""
+    # In-memory keyring JSON (microservice callers pass the wallet per request so the key never
+    # touches disk); takes precedence over wallet_path when both are set.
+    wallet_json: str = ""
     wallet_password: str = ""
     cluster: str = "dragon1-testnet"
     integration_id: str = ""
@@ -73,7 +76,9 @@ class CefIntegrationConfig(StrictConfigModel):
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.vault_base_url and self.vault_id and self.wallet_path)
+        return bool(
+            self.vault_base_url and self.vault_id and (self.wallet_path or self.wallet_json)
+        )
 
 
 class DatadogIntegrationConfig(StrictConfigModel):

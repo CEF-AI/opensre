@@ -21,6 +21,7 @@ def classify(
                 "vault_id": credentials.get("vault_id", ""),
                 "agent_id": credentials.get("agent_id", ""),
                 "wallet_path": credentials.get("wallet_path", ""),
+                "wallet_json": credentials.get("wallet_json", ""),
                 "wallet_password": credentials.get("wallet_password", ""),
                 "cluster": credentials.get("cluster", "") or "dragon1-testnet",
                 "integration_id": record_id,

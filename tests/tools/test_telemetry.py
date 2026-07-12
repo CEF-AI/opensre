@@ -726,7 +726,7 @@ def _cef_agent_logs_case() -> ToolFailureCase:
     def patch(mp: pytest.MonkeyPatch) -> None:
         from app.tools import CefAgentLogsTool as mod
 
-        mp.setattr(mod, "signer_from_file", MagicMock(side_effect=RuntimeError("bad wallet")))
+        mp.setattr(mod, "signer_from_material", MagicMock(side_effect=RuntimeError("bad wallet")))
 
     def invoke() -> dict[str, Any]:
         from app.tools.CefAgentLogsTool import cef_agent_logs
@@ -765,7 +765,7 @@ def _cef_clip_history_case() -> ToolFailureCase:
     def patch(mp: pytest.MonkeyPatch) -> None:
         from app.tools import CefClipHistoryTool as mod
 
-        mp.setattr(mod, "signer_from_file", MagicMock(side_effect=RuntimeError("bad wallet")))
+        mp.setattr(mod, "signer_from_material", MagicMock(side_effect=RuntimeError("bad wallet")))
 
     def invoke() -> dict[str, Any]:
         from app.tools.CefClipHistoryTool import cef_clip_history

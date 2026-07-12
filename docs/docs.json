@@ -124,6 +124,7 @@
               "cef",
               "cef-agent-logs",
               "cef-component-logs",
+              "cef-qa",
               "cef-qa-report",
               "coralogix",
               "datadog",

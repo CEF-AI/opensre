@@ -88,6 +88,22 @@ def _is_pass(category: str, findings: list[str], root_cause: str) -> bool:
     return not findings and category.lower() in ("", "unknown")
 
 
+def cef_verdict(result: dict[str, Any]) -> str:
+    """The gated QA verdict for a result: ``pass`` | ``no_go`` | ``needs_review``.
+
+    The LLM decides pass/no-go from the run's outcome; a low ``validity_score`` gates either to
+    ``needs_review``. Single source of truth shared by the report header, the microservice/CLI
+    response, and the eval suite.
+    """
+    root_cause = str(result.get("root_cause") or "").strip()
+    category = str(result.get("root_cause_category") or "")
+    passed = _is_pass(category, _claims(result.get("validated_claims")), root_cause)
+    validity = _validity(result.get("validity_score"))
+    if validity is not None and validity < _REVIEW_THRESHOLD:
+        return "needs_review"
+    return "pass" if passed else "no_go"
+
+
 def format_cef_qa_telegram(result: dict[str, Any], *, subtitle: str = "", footer: str = "") -> str:
     """Render a CEF QA investigation result as a compact, confidence-first Telegram report.
 
@@ -111,15 +127,14 @@ def format_cef_qa_telegram(result: dict[str, Any], *, subtitle: str = "", footer
     ]
 
     passed = _is_pass(category, _claims(result.get("validated_claims")), root_cause)
-    validity = _validity(result.get("validity_score"))
-    needs_review = validity is not None and validity < _REVIEW_THRESHOLD
+    verdict = cef_verdict(result)
+    needs_review = verdict == "needs_review"
 
-    if needs_review:
-        header = "🟡  hiring-coach QA · NEEDS REVIEW"
-    elif passed:
-        header = "🟢  hiring-coach QA · PASS"
-    else:
-        header = "🔴  hiring-coach QA · NO-GO"
+    header = {
+        "needs_review": "🟡  hiring-coach QA · NEEDS REVIEW",
+        "pass": "🟢  hiring-coach QA · PASS",
+        "no_go": "🔴  hiring-coach QA · NO-GO",
+    }[verdict]
 
     meta = [part for part in (subtitle, _confidence_label(result.get("validity_score"))) if part]
     lines: list[str] = [header, _DIVIDER, "  ·  ".join(meta)]
@@ -156,4 +171,4 @@ def send_cef_qa_report(
     return success, error
 
 
-__all__ = ["format_cef_qa_telegram", "send_cef_qa_report"]
+__all__ = ["cef_verdict", "format_cef_qa_telegram", "send_cef_qa_report"]

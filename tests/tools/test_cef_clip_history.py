@@ -37,7 +37,7 @@ class _FakeClient:
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, client: _FakeClient) -> None:
-    monkeypatch.setattr(mod, "signer_from_file", lambda *_a, **_k: object())
+    monkeypatch.setattr(mod, "signer_from_material", lambda *_a, **_k: object())
     monkeypatch.setattr(mod, "CefVaultClient", lambda *_a, **_k: client)
 
 

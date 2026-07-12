@@ -112,4 +112,25 @@ def signer_from_file(path: str | Path, password: str) -> WalletSigner:
     return signer_from_wallet_json(wallet, password)
 
 
-__all__ = ["WalletSigner", "signer_from_file", "signer_from_wallet_json"]
+def signer_from_material(
+    *, wallet_json: str = "", wallet_path: str = "", password: str = ""
+) -> WalletSigner:
+    """Build a signer from in-memory wallet JSON (preferred) or a wallet file path.
+
+    ``wallet_json`` is the raw keyring-JSON string a microservice caller passes per request, so
+    the key never touches disk. Falls back to ``wallet_path`` for the env/CLI path. Raises
+    ``ValueError`` if neither is supplied.
+    """
+    if wallet_json.strip():
+        return signer_from_wallet_json(json.loads(wallet_json), password)
+    if wallet_path.strip():
+        return signer_from_file(wallet_path, password)
+    raise ValueError("no wallet material: provide wallet_json or wallet_path")
+
+
+__all__ = [
+    "WalletSigner",
+    "signer_from_file",
+    "signer_from_material",
+    "signer_from_wallet_json",
+]

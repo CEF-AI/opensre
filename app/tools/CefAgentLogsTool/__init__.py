@@ -13,7 +13,7 @@ from typing import Any, cast
 from pydantic import BaseModel, Field
 
 from app.services.cef.client import CefVaultClient
-from app.services.cef.wallet_signer import signer_from_file
+from app.services.cef.wallet_signer import signer_from_material
 from app.tools._telemetry import report_run_error
 from app.tools.tool_decorator import tool
 from app.tools.utils.availability import cef_available_or_backend
@@ -73,6 +73,7 @@ def _cef_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "vault_id": cef.get("vault_id", ""),
         "agent_id": cef.get("agent_id", ""),
         "wallet_path": cef.get("wallet_path", ""),
+        "wallet_json": cef.get("wallet_json", ""),
         "wallet_password": cef.get("wallet_password", ""),
         # Fixture backend for synthetic scenarios (mirrors eks_backend/datadog_backend).
         "cef_backend": cef.get("_backend"),
@@ -120,6 +121,7 @@ def _unavailable(error: str | None) -> dict[str, Any]:
         "vault_id",
         "agent_id",
         "wallet_path",
+        "wallet_json",
         "wallet_password",
         "cef_backend",
     ),
@@ -135,6 +137,7 @@ def cef_agent_logs(
     vault_id: str = "",
     agent_id: str = "",
     wallet_path: str = "",
+    wallet_json: str = "",
     wallet_password: str = "",
     cef_backend: Any = None,
     **_kwargs: Any,
@@ -154,10 +157,12 @@ def cef_agent_logs(
                 limit=limit,
             ),
         )
-    if not (vault_base_url and vault_id and wallet_path):
+    if not (vault_base_url and vault_id and (wallet_path or wallet_json)):
         return _unavailable("CEF vault is not configured.")
     try:
-        signer = signer_from_file(wallet_path, wallet_password)
+        signer = signer_from_material(
+            wallet_json=wallet_json, wallet_path=wallet_path, password=wallet_password
+        )
     except Exception as exc:  # noqa: BLE001 - any wallet-load failure → report + unavailable
         report_run_error(
             exc,

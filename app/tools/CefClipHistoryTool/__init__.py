@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.services.cef.client import CefVaultClient
-from app.services.cef.wallet_signer import signer_from_file
+from app.services.cef.wallet_signer import signer_from_material
 from app.tools._telemetry import report_run_error
 from app.tools.tool_decorator import tool
 
@@ -46,7 +46,11 @@ class CefClipHistoryOutput(BaseModel):
 
 def _cef_is_available(sources: dict[str, dict]) -> bool:
     cef = sources.get("cef") or {}
-    return bool(cef.get("vault_base_url") and cef.get("vault_id") and cef.get("wallet_path"))
+    return bool(
+        cef.get("vault_base_url")
+        and cef.get("vault_id")
+        and (cef.get("wallet_path") or cef.get("wallet_json"))
+    )
 
 
 def _cef_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
@@ -56,6 +60,7 @@ def _cef_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
         "vault_id": cef.get("vault_id", ""),
         "agent_id": cef.get("agent_id", ""),
         "wallet_path": cef.get("wallet_path", ""),
+        "wallet_json": cef.get("wallet_json", ""),
         "wallet_password": cef.get("wallet_password", ""),
         "cubby_alias": cef.get("cubby_alias", "") or _DEFAULT_ALIAS,
     }
@@ -104,6 +109,7 @@ def _rows_as_dicts(result: dict[str, Any]) -> list[dict[str, Any]]:
         "vault_id",
         "agent_id",
         "wallet_path",
+        "wallet_json",
         "wallet_password",
         "cubby_alias",
     ),
@@ -117,15 +123,18 @@ def cef_clip_history(
     vault_id: str = "",
     agent_id: str = "",
     wallet_path: str = "",
+    wallet_json: str = "",
     wallet_password: str = "",
     cubby_alias: str = _DEFAULT_ALIAS,
     **_kwargs: Any,
 ) -> dict[str, Any]:
     """Retrieve a clip's prior run scores. Pure retrieval; the agent reasons over the baseline."""
-    if not (vault_base_url and vault_id and wallet_path):
+    if not (vault_base_url and vault_id and (wallet_path or wallet_json)):
         return {"source": "cef", "available": False, "error": "CEF vault is not configured."}
     try:
-        signer = signer_from_file(wallet_path, wallet_password)
+        signer = signer_from_material(
+            wallet_json=wallet_json, wallet_path=wallet_path, password=wallet_password
+        )
     except Exception as exc:  # noqa: BLE001 - any wallet-load failure → report + unavailable
         report_run_error(
             exc,

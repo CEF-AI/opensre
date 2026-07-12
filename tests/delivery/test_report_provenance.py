@@ -123,7 +123,7 @@ def test_cef_investigation_renders_beautified_qa_verdict() -> None:
     body = format_telegram_message(ctx)
     # beautified CEF layout, not the generic HTML report
     assert body.startswith("🔴  hiring-coach QA · NO-GO")
-    assert "E040 · HIA-C1 · dragon1-testnet" in body and "confidence: high" in body
+    assert "E040 · HIA-C1 · dragon1-testnet" in body and "confidence: 100% (high)" in body
     assert "FINDINGS" in body and "linguistic_score 0.20 vs baseline 0.85" in body
     assert "DO" in body and "diff E040 vs E039 prompt" in body
     assert "NOT VERIFIED" in body and "prompt change vs scoring bug" in body

@@ -1,4 +1,4 @@
-# Environment variables 
+# Environment variables
 *.env
 .env
 .env.local
@@ -7,6 +7,12 @@
 .env.bak
 .env.bench
 .secrets
+
+# CEF vault wallet keyrings (Polkadot ed25519 keyring JSON) — NEVER commit; use CI secrets.
+6QeLWV6XLRYbxwwMgnv7PSHFJgYWYc38xFk6htS2fWkzcZ1R.json
+*wallet*.json
+*.keyring.json
+cef-wallet*.json
 
 # Python
 __pycache__/

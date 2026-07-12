@@ -45,7 +45,9 @@ const NO_EVAL = has('--no-eval');
 const NO_STATE = has('--no-state');
 const WALLET = expand(arg('--wallet') ?? join(homedir(), 'RustroverProjects/hiring-coach-eval/wallet.json'));
 const PASSWORD = arg('--password') ?? 'cef-agents';
-const CLIPS = arg('--clips') ?? 'HIA-C1,HIA-A1,HIA-E1';
+// One clip = one end-to-end execution run to QA per version. QA verifies execution health
+// (did the run complete?), not score quality, so a single clip is enough — pass --clips to widen.
+const CLIPS = arg('--clips') ?? 'HIA-C1';
 const STATE = expand(arg('--state') ?? join(homedir(), '.cef-qa', `last-cid-${ALIAS}`));
 
 interface Conn { version: string; status: string; disconnect: () => Promise<void>; }

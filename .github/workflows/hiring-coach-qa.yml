@@ -101,7 +101,7 @@ jobs:
           pnpm exec tsx manifest-watch.ts \
             --apply --no-state \
             --wallet "$CEF_WALLET_PATH" --password "$CEF_WALLET_PASSWORD" \
-            --clips HIA-C1,HIA-A1,HIA-E1
+            --clips HIA-C1  # single clip = one e2e execution run per version (QA is execution, not scoring)
           echo "emitted $(wc -l < "$QA_EMIT_FILE" | tr -d ' ') alert(s)"
         working-directory: qa-agent
 

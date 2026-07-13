@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.integrations.catalog import classify_integrations
 from app.services.cef.report import (
@@ -60,7 +60,9 @@ class TelegramTarget(BaseModel):
 class CefQaRequest(BaseModel):
     """A single QA request: which run to check, whose vault, and where to report."""
 
-    conversation_id: str
+    # The run to QA — the CEF event/Job `context` id. Every agent already sets this per run.
+    # Accepts the legacy name `conversation_id` as an alias (same value) so existing callers work.
+    context_id: str = Field(validation_alias=AliasChoices("context_id", "conversation_id"))
     clip: str = ""
     variant: str = ""
     cluster: str = ""
@@ -162,12 +164,12 @@ def _build_alert(req: CefQaRequest, *, has_grafana: bool) -> dict[str, Any]:
         "summary": "E2E execution QA of a hiring-coach run.",
         "description": req.description
         or (
-            f"QA of hiring-coach run conversation_id {req.conversation_id}. Call get_cef_guidance "
+            f"QA of hiring-coach run conversation_id {req.context_id}. Call get_cef_guidance "
             "topic investigation_procedure. Verify the run's own activities via cef_agent_logs, "
             "then sweep components with cef_component_logs scoped to this run's window."
         ),
         "context_sources": "cef,grafana" if has_grafana else "cef",
-        "conversation_id": req.conversation_id,
+        "conversation_id": req.context_id,
     }
     for key in ("variant", "clip", "cluster", "model", "agent_models"):
         value = getattr(req, key)
@@ -183,7 +185,7 @@ def _build_alert(req: CefQaRequest, *, has_grafana: bool) -> dict[str, Any]:
 
 def _subtitle_footer(req: CefQaRequest) -> tuple[str, str]:
     subtitle = " · ".join(v for v in (req.variant, req.clip, req.cluster, req.model) if v)
-    footer = f"conv {req.conversation_id}" if req.conversation_id else ""
+    footer = f"conv {req.context_id}" if req.context_id else ""
     return subtitle, footer
 
 

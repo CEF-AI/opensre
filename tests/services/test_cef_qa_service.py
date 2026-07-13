@@ -58,7 +58,7 @@ def _patch_pipeline(monkeypatch: pytest.MonkeyPatch, state: dict[str, Any]) -> N
 
 def test_run_cef_qa_maps_state_to_verdict_and_report(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_pipeline(monkeypatch, _STATE)
-    req = CefQaRequest(conversation_id="conv-1", clip="HIA-C1", model="gemma4_31b", cef=_CEF)
+    req = CefQaRequest(context_id="conv-1", clip="HIA-C1", model="gemma4_31b", cef=_CEF)
     result = run_cef_qa(req)
     assert result.verdict == "no_go"
     assert result.confidence == "high"
@@ -72,6 +72,7 @@ def test_run_cef_qa_maps_state_to_verdict_and_report(monkeypatch: pytest.MonkeyP
 def test_run_cef_qa_low_confidence_gates_to_needs_review(monkeypatch: pytest.MonkeyPatch) -> None:
     state = {**_STATE, "validity_score": 0.3}
     _patch_pipeline(monkeypatch, state)
+    # `conversation_id` here exercises the legacy alias → still maps to context_id.
     result = run_cef_qa(CefQaRequest(conversation_id="conv-2", cef=_CEF))
     assert result.verdict == "needs_review"
     assert result.confidence == "low"
@@ -87,7 +88,7 @@ def test_run_cef_qa_posts_to_telegram_when_target_given(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(qa_mod, "send_cef_qa_report", fake_send)
     req = CefQaRequest(
-        conversation_id="conv-3",
+        context_id="conv-3",
         cef=_CEF,
         deliver_telegram=TelegramTarget(bot_token="tok", chat_id="42"),
     )
@@ -103,7 +104,7 @@ def test_investigate_endpoint_requires_auth() -> None:
 
     client = TestClient(app)
     # No bearer token → HTTPBearer rejects before the handler runs.
-    resp = client.post("/investigate", json={"conversation_id": "x", "cef": _CEF.model_dump()})
+    resp = client.post("/investigate", json={"context_id": "x", "cef": _CEF.model_dump()})
     assert resp.status_code in (401, 403)
 
 
@@ -122,7 +123,7 @@ def test_investigate_endpoint_runs_qa_when_authorized(monkeypatch: pytest.Monkey
         client = TestClient(webapp.app)
         resp = client.post(
             "/investigate",
-            json={"conversation_id": "conv-9", "cef": _CEF.model_dump()},
+            json={"context_id": "conv-9", "cef": _CEF.model_dump()},
         )
         assert resp.status_code == 200
         assert resp.json()["verdict"] == "pass"

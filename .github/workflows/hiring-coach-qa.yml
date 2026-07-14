@@ -118,12 +118,24 @@ jobs:
         working-directory: qa-agent
 
       - name: QA each finished run via OpenSRE CLI
+        # OpenSRE investigates + delivers Telegram/Slack itself. The Notion dashboard is a SEPARATE
+        # concern, so after each investigate we run the qa-agent's notion-push (best-effort: a Notion
+        # hiccup logs but never fails the QA job).
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_READINESS_DB: ${{ secrets.NOTION_READINESS_DB }}
+          NOTION_AUDIT_DB: ${{ secrets.NOTION_AUDIT_DB }}
         run: |
           set -euo pipefail
           ALERTS="${{ github.workspace }}/alerts.jsonl"
           if [ ! -s "$ALERTS" ]; then echo "No new release this cycle — nothing to QA."; exit 0; fi
+          RESULT="${{ github.workspace }}/qa-result.json"
+          TRIGGER=manual; [ "${{ github.event_name }}" = "schedule" ] && TRIGGER=scheduled
           while IFS= read -r alert; do
             [ -z "$alert" ] && continue
             echo "→ investigating $(printf '%s' "$alert" | uv run python -c 'import sys,json;print(json.load(sys.stdin)["commonAnnotations"]["conversation_id"])')"
-            uv run opensre investigate --input-json "$alert"
+            uv run opensre investigate --input-json "$alert" --output "$RESULT"
+            # Mirror the verdict + RCA into the Notion readiness dashboard (separate step, not OpenSRE).
+            pnpm -C qa-agent exec tsx notion-push.ts \
+              --result "$RESULT" --alert "$alert" --dimension Functional --trigger "$TRIGGER" || true
           done < "$ALERTS"

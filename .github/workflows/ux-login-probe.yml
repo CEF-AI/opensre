@@ -1,0 +1,51 @@
+# UX login probe — validates the riskiest part of running Midscene UX tests on CI: the Cere wallet
+# login + widget render on a headless ubuntu runner under xvfb. Native assertion only (no OpenRouter).
+# Manual-only; throwaway — deleted once the full UX job is wired into hiring-coach-qa.yml.
+#
+# Lives on the default branch (so it's dispatchable) but runs the CODE from feat/cef-qa-vault-client
+# (where midscene-qa lives), same pattern as hiring-coach-qa.yml.
+name: UX login probe
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout the QA feature branch (midscene-qa lives here)
+        uses: actions/checkout@v4
+        with:
+          ref: feat/cef-qa-vault-client
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install midscene-qa deps
+        working-directory: midscene-qa
+        run: npm ci
+
+      - name: Install Chrome + system deps
+        working-directory: midscene-qa
+        run: npx playwright install --with-deps chrome
+
+      - name: Install xvfb (virtual display for headed Chrome)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Login probe (native, headed under xvfb)
+        working-directory: midscene-qa
+        env:
+          VAULT_URL: https://vault.compute.test.ddcdragon.com/
+        run: xvfb-run -a npx playwright test ./e2e/ci-login-probe.spec.ts --project=chrome --headed
+
+      - name: Upload artifacts (screenshots, trace, report)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ux-login-probe
+          path: |
+            midscene-qa/test-results
+            midscene-qa/playwright-report
+          if-no-files-found: ignore

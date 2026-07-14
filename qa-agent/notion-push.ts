@@ -68,9 +68,9 @@ function reportBlocks(text: string): any[] {
   return blocks.slice(0, 100); // Notion caps children per create call
 }
 
-// Pass-rate over the last `days` days for one agent+dimension, as "N% (passes/total)" (empty if no
-// runs in the window). Paginates so a busy window isn't silently truncated at one page.
-async function rollingUptime(notion: Client, agentPageId: string, dimension: string, days: number): Promise<string> {
+// Pass/total over the last `days` days for one agent+dimension (paginated so a busy window isn't
+// truncated). The just-recorded run is included since it's created before this runs.
+async function rollingWindow(notion: Client, agentPageId: string, dimension: string, days: number): Promise<{ passes: number; total: number }> {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   let cursor: string | undefined;
   let passes = 0, total = 0;
@@ -93,7 +93,15 @@ async function rollingUptime(notion: Client, agentPageId: string, dimension: str
     }
     cursor = page.has_more ? page.next_cursor : undefined;
   } while (cursor);
-  return total ? `${Math.round((100 * passes) / total)}% (${passes}/${total})` : '';
+  return { passes, total };
+}
+
+// One combined cell: health emoji (agrees with the %) + pass-rate. Empty if no runs in the window.
+function windowCell(passes: number, total: number): string {
+  if (!total) return '';
+  const pct = Math.round((100 * passes) / total);
+  const emoji = pct === 100 ? '🟢' : pct === 0 ? '🔴' : '🟡';
+  return `${emoji} ${pct}% (${passes}/${total})`;
 }
 
 async function main(): Promise<void> {
@@ -189,13 +197,16 @@ async function main(): Promise<void> {
     children: reportText ? reportBlocks(reportText) : undefined,
   });
 
-  // 4) Rolling uptime — pass-rate over the last 7 and 30 days for this agent+dimension (the row just
-  //    created is included, so it reflects this run). Two windows = "change duration" as columns,
-  //    since Notion can't express a rolling date filter on a view. Written as "N% (passes/total)".
-  const uptime7 = await rollingUptime(notion, agentPageId, dimension, 7);
-  const uptime30 = await rollingUptime(notion, agentPageId, dimension, 30);
+  // 4) Rolling windowed health — for each window compute one combined cell "emoji N% (p/t)" so the
+  //    verdict-health and uptime read together. Windows (1d/3d/7d) become switchable dashboard views.
+  const cells: Record<number, string> = {};
+  for (const days of [1, 3, 7]) {
+    const { passes, total } = await rollingWindow(notion, agentPageId, dimension, days);
+    cells[days] = windowCell(passes, total);
+  }
 
-  // 5) Upsert the matrix cell — always mirror the latest verdict.
+  // 5) Upsert the matrix — Functional select mirrors the LATEST verdict (authoritative status);
+  //    the per-window cells add the delta.
   const matrixProps: Record<string, any> = {
     [dimension]: select(verdictLabel),
     'Manifest Version': rich(manifestVersion),
@@ -203,10 +214,11 @@ async function main(): Promise<void> {
     'Last checked': { date: { start: new Date().toISOString() } },
   };
   if (confidenceSel) matrixProps.Confidence = select(confidenceSel);
-  // Uptime columns are per-dimension; only Functional exists today (add UX/Quality columns when wired).
+  // Per-window cells are per-dimension; only Functional exists today (add UX/Quality when wired).
   if (dimension === 'Functional') {
-    if (uptime7) matrixProps['Functional uptime (7d)'] = rich(uptime7);
-    if (uptime30) matrixProps['Functional uptime (30d)'] = rich(uptime30);
+    if (cells[1]) matrixProps['Functional (1d)'] = rich(cells[1]);
+    if (cells[3]) matrixProps['Functional (3d)'] = rich(cells[3]);
+    if (cells[7]) matrixProps['Functional (7d)'] = rich(cells[7]);
   }
   await notion.pages.update({ page_id: agentPageId, properties: matrixProps as any });
 

@@ -68,6 +68,9 @@ function triggerQA(convId: string, clip: string, variant: string, mode: 'full_qa
       context_sources: 'cef,grafana',
       // structured keys the beautified subtitle/footer read:
       variant, clip, cluster: CEF_CLUSTER, model: QA_MODEL, conversation_id: convId,
+      // agent alias + manifest version — carried through so the Notion push (a separate CI step)
+      // can key the matrix row and record which version was QA'd, without re-deriving them.
+      agent: AGENT_ALIAS, manifest_version: process.env.CEF_MANIFEST_VERSION ?? '',
       // this agent's model names, so QA can scope inference checks to them (see investigation_procedure)
       agent_models: AGENT_MODELS,
     },

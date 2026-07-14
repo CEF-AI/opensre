@@ -6,7 +6,11 @@
   "description": "hiring-coach QA agent: manifest-publish watcher + eval runner that triggers OpenSRE QA.",
   "scripts": {
     "watch": "tsx manifest-watch.ts",
-    "eval": "tsx lab-batch-run.ts"
+    "eval": "tsx lab-batch-run.ts",
+    "notion-push": "tsx notion-push.ts"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15"
   },
   "devDependencies": {
     "@cef-ai/client-sdk": "^0.0.17",

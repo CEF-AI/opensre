@@ -153,7 +153,7 @@ async function main(): Promise<void> {
   console.log(`[watch] audio trigger event: ${audioEventType}${audioEngagement?.id ? ` (engagement ${audioEngagement.id})` : ''}`);
   const args = ['exec', 'tsx', join(HERE, 'lab-batch-run.ts'), '--wallet', WALLET, '--password', PASSWORD, '--clips', CLIPS, '--exp', `mp-${latest.version}`];
   console.log(`[watch] eval: pnpm ${args.join(' ')}`);
-  const childEnv = { ...process.env, CEF_AGENT_SERVICE_PUBKEY: `0x${AS}`, VAULT_URL, HIRING_AGENT_ALIAS: ALIAS, CEF_AGENT_MODELS: agentModels.join(','), CEF_AUDIO_EVENT_TYPE: audioEventType };
+  const childEnv = { ...process.env, CEF_AGENT_SERVICE_PUBKEY: `0x${AS}`, VAULT_URL, HIRING_AGENT_ALIAS: ALIAS, CEF_AGENT_MODELS: agentModels.join(','), CEF_AUDIO_EVENT_TYPE: audioEventType, CEF_MANIFEST_VERSION: latest.version };
   const res = spawnSync('pnpm', args, { cwd: HERE, stdio: 'inherit', env: childEnv });
   process.exit(res.status ?? 0);
 }

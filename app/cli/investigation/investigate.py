@@ -141,6 +141,18 @@ def run_investigation_cli(
         "is_noise": state.get("is_noise", False),
         "validity_score": state.get("validity_score", 0.0),
     }
+    # Expose the QA verdict OpenSRE already computes for CEF runs, so any consumer (a dashboard, a
+    # reviewer) reads a machine-readable decision instead of re-deriving the gate. CEF-only.
+    ann = raw_alert.get("commonAnnotations") or {}
+    is_cef = str(raw_alert.get("alert_source") or "").lower() == "cef" or "cef" in str(
+        ann.get("context_sources") or ""
+    )
+    if is_cef:
+        from app.services.cef.report import _confidence, cef_verdict
+
+        out["verdict"] = cef_verdict(dict(state))
+        out["confidence"] = _confidence(state.get("validity_score"))
+        out["root_cause_category"] = state.get("root_cause_category", "")
     if state.get("evidence_entries"):
         out["tool_calls"] = state["evidence_entries"]
     if opensre_evaluate:

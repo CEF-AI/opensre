@@ -26,6 +26,11 @@ if (!AS) throw new Error('Set CEF_AGENT_SERVICE_PUBKEY');
 const AGENT_ALIAS = process.env.HIRING_AGENT_ALIAS ?? 'hiring-coach-qa';
 const AGENT_ID = `${AS}:${AGENT_ALIAS}`;
 const S3 = parseArg('--s3-base') ?? 'https://ddc-s3-gateway.compute.test.ddcdragon.com/hiringcoach-public/scenarios/audio';
+// The event type that triggers a run (maps to the agent's onAudio handler). Newer manifests version
+// their engagement handles (e.g. `analyze.audio.v0843`), so a hardcoded `analyze.audio` matches no
+// handle and the orchestrator creates NO job. manifest-watch derives the right name from the target
+// manifest's engagement `handles` and passes it here; default keeps the legacy unversioned contract.
+const AUDIO_EVENT_TYPE = process.env.CEF_AUDIO_EVENT_TYPE || 'analyze.audio';
 
 // --- QA trigger (opt-in) ------------------------------------------------------------------
 // When OPENSRE_URL is set, each finished run is handed to OpenSRE, which investigates it
@@ -296,10 +301,10 @@ async function main() {
       const seq = await nextSeqNum(vault, vaultId, prefix);
       clipLabel = `${prefix}${seq}`;
     }
-    console.error(`[${clip.name}] publishing ${urls.length} chunks → conv=${convId}${expIdArg ? ` exp=${expIdArg}` : ''} label=${clipLabel}`);
+    console.error(`[${clip.name}] publishing ${urls.length} chunks → conv=${convId} event=${AUDIO_EVENT_TYPE}${expIdArg ? ` exp=${expIdArg}` : ''} label=${clipLabel}`);
 
     await vault.events.publish(vaultId, SCOPE, [{
-      type: 'analyze.audio', role: 'user', scope: SCOPE,
+      type: AUDIO_EVENT_TYPE, role: 'user', scope: SCOPE,
       context: convId, target: AGENT_ID,
       timestamp: new Date().toISOString(),
       payload: {

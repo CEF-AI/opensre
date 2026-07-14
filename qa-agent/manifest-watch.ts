@@ -138,9 +138,22 @@ async function main(): Promise<void> {
     ),
   ];
   console.log(`[watch] agent models: ${agentModels.join(', ') || '(none)'}`);
+  // The event type that TRIGGERS a run (maps to the agent's onAudio handler). Newer manifests version
+  // their engagement handles (e.g. `analyze.audio.v0843`); publishing the legacy `analyze.audio` then
+  // matches NO handle and the orchestrator creates no job. Read the trigger from the manifest's
+  // engagements so the eval always fires an event this version actually listens for.
+  interface Engagement { id?: string; handles?: Record<string, string> }
+  const engagements = ((latest as unknown as { engagements?: Engagement[] }).engagements) ?? [];
+  const hasOnAudio = (e: Engagement): boolean => !!e.handles && Object.values(e.handles).includes('onAudio');
+  const audioEngagement =
+    engagements.find((e) => e.id === 'asr-whisper-turbo' && hasOnAudio(e)) ?? engagements.find(hasOnAudio);
+  const audioEventType =
+    (audioEngagement?.handles &&
+      Object.entries(audioEngagement.handles).find(([, h]) => h === 'onAudio')?.[0]) || 'analyze.audio';
+  console.log(`[watch] audio trigger event: ${audioEventType}${audioEngagement?.id ? ` (engagement ${audioEngagement.id})` : ''}`);
   const args = ['exec', 'tsx', join(HERE, 'lab-batch-run.ts'), '--wallet', WALLET, '--password', PASSWORD, '--clips', CLIPS, '--exp', `mp-${latest.version}`];
   console.log(`[watch] eval: pnpm ${args.join(' ')}`);
-  const childEnv = { ...process.env, CEF_AGENT_SERVICE_PUBKEY: `0x${AS}`, VAULT_URL, HIRING_AGENT_ALIAS: ALIAS, CEF_AGENT_MODELS: agentModels.join(',') };
+  const childEnv = { ...process.env, CEF_AGENT_SERVICE_PUBKEY: `0x${AS}`, VAULT_URL, HIRING_AGENT_ALIAS: ALIAS, CEF_AGENT_MODELS: agentModels.join(','), CEF_AUDIO_EVENT_TYPE: audioEventType };
   const res = spawnSync('pnpm', args, { cwd: HERE, stdio: 'inherit', env: childEnv });
   process.exit(res.status ?? 0);
 }

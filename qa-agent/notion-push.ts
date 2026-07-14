@@ -96,12 +96,16 @@ async function rollingWindow(notion: Client, agentPageId: string, dimension: str
   return { passes, total };
 }
 
-// One combined cell: health emoji (agrees with the %) + pass-rate. Empty if no runs in the window.
-function windowCell(passes: number, total: number): string {
+// One combined cell: current status (dot+word from the LATEST verdict) + window uptime %.
+// The dot reflects "is it up right now" — green when the latest run passed, even if the window had
+// an earlier blip; the % carries the reliability. Empty if no runs in the window.
+function statusPrefix(verdict: string): string {
+  return verdict === 'pass' ? '🟢 Up' : verdict === 'no_go' ? '🔴 Down' : '🟡 Review';
+}
+function windowCell(passes: number, total: number, verdict: string): string {
   if (!total) return '';
   const pct = Math.round((100 * passes) / total);
-  const emoji = pct === 100 ? '🟢' : pct === 0 ? '🔴' : '🟡';
-  return `${emoji} ${pct}% (${passes}/${total})`;
+  return `${statusPrefix(verdict)} · ${pct}%`;
 }
 
 async function main(): Promise<void> {
@@ -202,7 +206,7 @@ async function main(): Promise<void> {
   const cells: Record<number, string> = {};
   for (const days of [1, 3, 7]) {
     const { passes, total } = await rollingWindow(notion, agentPageId, dimension, days);
-    cells[days] = windowCell(passes, total);
+    cells[days] = windowCell(passes, total, verdict); // dot/word = latest verdict; % = window uptime
   }
 
   // 5) Upsert the matrix — Functional select mirrors the LATEST verdict (authoritative status);

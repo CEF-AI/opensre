@@ -68,6 +68,34 @@ function reportBlocks(text: string): any[] {
   return blocks.slice(0, 100); // Notion caps children per create call
 }
 
+// Pass-rate over the last `days` days for one agent+dimension, as "N% (passes/total)" (empty if no
+// runs in the window). Paginates so a busy window isn't silently truncated at one page.
+async function rollingUptime(notion: Client, agentPageId: string, dimension: string, days: number): Promise<string> {
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  let cursor: string | undefined;
+  let passes = 0, total = 0;
+  do {
+    const page: any = await notion.databases.query({
+      database_id: AUDIT_DB,
+      filter: {
+        and: [
+          { property: 'Agent', relation: { contains: agentPageId } },
+          { property: 'Dimension', select: { equals: dimension } },
+          { property: 'Timestamp', date: { on_or_after: cutoff } },
+        ],
+      },
+      page_size: 100,
+      start_cursor: cursor,
+    });
+    for (const r of page.results) {
+      total += 1;
+      if ((r.properties?.Verdict?.select?.name ?? '') === '🟢 Pass') passes += 1;
+    }
+    cursor = page.has_more ? page.next_cursor : undefined;
+  } while (cursor);
+  return total ? `${Math.round((100 * passes) / total)}% (${passes}/${total})` : '';
+}
+
 async function main(): Promise<void> {
   if (!TOKEN || !READINESS_DB || !AUDIT_DB) {
     bail('missing NOTION_TOKEN / NOTION_READINESS_DB / NOTION_AUDIT_DB — skipping.');
@@ -161,7 +189,13 @@ async function main(): Promise<void> {
     children: reportText ? reportBlocks(reportText) : undefined,
   });
 
-  // 4) Upsert the matrix cell — always mirror the latest verdict.
+  // 4) Rolling uptime — pass-rate over the last 7 and 30 days for this agent+dimension (the row just
+  //    created is included, so it reflects this run). Two windows = "change duration" as columns,
+  //    since Notion can't express a rolling date filter on a view. Written as "N% (passes/total)".
+  const uptime7 = await rollingUptime(notion, agentPageId, dimension, 7);
+  const uptime30 = await rollingUptime(notion, agentPageId, dimension, 30);
+
+  // 5) Upsert the matrix cell — always mirror the latest verdict.
   const matrixProps: Record<string, any> = {
     [dimension]: select(verdictLabel),
     'Manifest Version': rich(manifestVersion),
@@ -169,6 +203,11 @@ async function main(): Promise<void> {
     'Last checked': { date: { start: new Date().toISOString() } },
   };
   if (confidenceSel) matrixProps.Confidence = select(confidenceSel);
+  // Uptime columns are per-dimension; only Functional exists today (add UX/Quality columns when wired).
+  if (dimension === 'Functional') {
+    if (uptime7) matrixProps['Functional uptime (7d)'] = rich(uptime7);
+    if (uptime30) matrixProps['Functional uptime (30d)'] = rich(uptime30);
+  }
   await notion.pages.update({ page_id: agentPageId, properties: matrixProps as any });
 
   console.log(`[notion-push] ${dimension} ${verdict} for ${agent} → ${(audit as any).url ?? 'ok'}`);

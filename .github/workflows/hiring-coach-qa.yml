@@ -202,19 +202,29 @@ jobs:
           echo "playwright exit: $?"
           set -e
 
-      - name: Build UX result JSON
+      - name: Build UX result + report bundle (MD summary + zipped HTML report)
         working-directory: midscene-qa
-        run: node scripts/build-ux-result.mjs ux-pw.json ux-result.json
+        run: |
+          node scripts/build-ux-result.mjs ux-pw.json ux-result.json
+          # MD file (the summary) to attach alongside the HTML report.
+          node -e "require('fs').writeFileSync('ux-summary.md', require('./ux-result.json').report)"
+          # Zip the Playwright HTML report folder so it can attach to the audit row as one file.
+          [ -d playwright-report ] && (cd playwright-report && zip -qr ../ux-report.zip .) || true
+          ls -la ux-result.json ux-summary.md ux-report.zip 2>/dev/null || true
 
-      - name: Push UX result to Notion (UX matrix cell + audit-trail row)
+      - name: Push UX result to Notion (UX matrix cell + audit-trail row + HTML/MD attachments)
         env:
           TRIGGER: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+          WS: ${{ github.workspace }}/midscene-qa
         run: |
+          ATTACH="$WS/ux-summary.md"
+          [ -f "$WS/ux-report.zip" ] && ATTACH="$WS/ux-report.zip,$ATTACH"
           pnpm -C qa-agent exec tsx notion-push.ts \
             --dimension UX --agent "$UX_AGENT" \
-            --result "${{ github.workspace }}/midscene-qa/ux-result.json" \
+            --result "$WS/ux-result.json" \
             --conversation-id "ux-${{ github.run_id }}" \
             --report-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --attach "$ATTACH" \
             --trigger "$TRIGGER" --source CI || true
 
       - name: Upload UX report (HTML report + trace + result)

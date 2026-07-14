@@ -14,8 +14,41 @@
 //   Audit Trail — append-only, one row per run (deduped on conversation_id + dimension); the row
 //                 body carries the full RCA report.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import { Client } from '@notionhq/client';
+
+const NOTION_VERSION = '2022-06-28';
+
+// Upload a local file to Notion (single-part File Upload API — @notionhq/client 2.3 has no helper,
+// so raw fetch) and return the file_upload id, ready to attach as a block. Best-effort: returns null
+// on any failure so a bad attachment never fails the push.
+async function uploadFileToNotion(token: string, filePath: string): Promise<string | null> {
+  try {
+    if (!existsSync(filePath)) return null;
+    const name = basename(filePath);
+    const create = await fetch('https://api.notion.com/v1/file_uploads', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'single_part', filename: name }),
+    });
+    const cj: any = await create.json();
+    if (!cj?.id || !cj?.upload_url) throw new Error(`create: ${JSON.stringify(cj).slice(0, 200)}`);
+    const form = new FormData();
+    form.append('file', new Blob([readFileSync(filePath)]), name);
+    const send = await fetch(cj.upload_url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Notion-Version': NOTION_VERSION },
+      body: form,
+    });
+    const sj: any = await send.json();
+    if (sj?.object === 'error') throw new Error(`send: ${JSON.stringify(sj).slice(0, 200)}`);
+    return cj.id as string;
+  } catch (e) {
+    console.log(`[notion-push] file upload failed for ${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
 
 const arg = (n: string): string | null => { const i = process.argv.indexOf(n); return i >= 0 ? (process.argv[i + 1] ?? null) : null; };
 const has = (n: string): boolean => process.argv.includes(n);
@@ -124,6 +157,7 @@ async function main(): Promise<void> {
   const manifestVersion = arg('--manifest-version') || ann.manifest_version || '';
   const clip = arg('--clip') || ann.clip || '';
   const reportUrl = arg('--report-url') || '';
+  const attach = (arg('--attach') || '').split(',').map((s) => s.trim()).filter(Boolean); // files to attach to the audit row
   const trigger = arg('--trigger') || 'manual';
   const source = arg('--source') || 'CI';
   const ciRun = arg('--ci-run')
@@ -200,6 +234,22 @@ async function main(): Promise<void> {
     properties: auditProps as any,
     children: reportText ? reportBlocks(reportText) : undefined,
   });
+
+  // Attach files (e.g. the HTML report + an MD summary) to the audit row body — uploaded to Notion
+  // and appended as downloadable file blocks. Best-effort; a failed attach never fails the push.
+  if (attach.length && (audit as any).id) {
+    const blocks: any[] = [];
+    for (const f of attach) {
+      const id = await uploadFileToNotion(TOKEN, f);
+      if (id) blocks.push({ object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id } } });
+    }
+    if (blocks.length) {
+      await notion.blocks.children.append({ block_id: (audit as any).id, children: blocks }).catch((e) =>
+        console.log(`[notion-push] attach append failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
+      console.log(`[notion-push] attached ${blocks.length}/${attach.length} file(s) to the audit row`);
+    }
+  }
 
   // 5) Upsert the matrix. The row is shared per-agent across dimensions, so each dimension writes
   //    ONLY its own cell — never another dimension's. The shared columns (Manifest Version, Latest

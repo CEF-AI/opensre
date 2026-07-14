@@ -1,0 +1,17 @@
+# Low-code path: the same exploration as e2e/app.spec.ts, as a declarative
+# YAML script run by the Midscene CLI.  Run with:  npm run yaml
+web:
+  url: https://rob.compute.test.ddcdragon.com/#/
+  viewportWidth: 1280
+  viewportHeight: 768
+  waitForNetworkIdle:
+    timeout: 5000
+
+tasks:
+  - name: perceive the app
+    flow:
+      - aiWaitFor: the application has rendered real content (not a blank/loading screen)
+      - aiQuery: >
+          { pageTitle: string, purpose: string, primaryActions: string[], visibleSections: string[] }
+        name: overview
+      - aiAssert: the page shows real application content, not an error or blank page

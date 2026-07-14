@@ -1,0 +1,24 @@
+{
+  "name": "midscene-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "POC: AI/vision-driven web UI automation with Midscene + Playwright",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:app": "playwright test ./e2e/app.spec.ts",
+    "connectivity": "tsx scripts/connectivity.ts",
+    "yaml": "midscene ./yaml/explore.yaml",
+    "report": "open midscene_run/report/index.html || true"
+  },
+  "devDependencies": {
+    "@midscene/cli": "latest",
+    "@midscene/web": "latest",
+    "@playwright/test": "^1.54.1",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.54.1",
+    "tsx": "4.20.1",
+    "typescript": "^5.5.4"
+  }
+}

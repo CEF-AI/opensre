@@ -160,6 +160,11 @@ jobs:
         with:
           ref: feat/cef-qa-vault-client
 
+      # pnpm 9 (Node-20 compatible) for the qa-agent notion-push; latest pnpm needs Node 22+.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -176,9 +181,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Install qa-agent deps (for notion-push)
-        run: |
-          corepack enable
-          pnpm -C qa-agent install --frozen-lockfile
+        run: pnpm -C qa-agent install --frozen-lockfile
 
       - name: Run UX suite (T1/T2) under xvfb
         working-directory: midscene-qa

@@ -24,8 +24,10 @@
 name: hiring-coach QA
 
 on:
-  schedule:
-    - cron: "*/15 * * * *" # poll every 15 min for a new published version
+  # Scheduled runs are DISABLED for now — re-enable (uncomment) when Krishna says.
+  # When enabled it runs twice a day; until then, trigger manually from the Actions tab.
+  # schedule:
+  #   - cron: "0 6,18 * * *" # twice a day — 06:00 & 18:00 UTC
   workflow_dispatch: {} # manual trigger
 
 jobs:

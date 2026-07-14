@@ -138,3 +138,82 @@ jobs:
             pnpm -C qa-agent exec tsx notion-push.ts \
               --result "$RESULT" --alert "$alert" --dimension Functional --trigger "$TRIGGER" || true
           done < "$ALERTS"
+
+  # UX dimension — Midscene/Playwright tests of the deployed hiring-coach widget, IN PARALLEL to the
+  # Functional `qa` job (same cron + manual triggers). Scope for now: T1/T2 (up to "analyse audio").
+  ux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VAULT_URL: https://vault.compute.test.ddcdragon.com/
+      MIDSCENE_MODEL_API_KEY: ${{ secrets.MIDSCENE_MODEL_API_KEY }}
+      MIDSCENE_MODEL_BASE_URL: https://openrouter.ai/api/v1
+      MIDSCENE_MODEL_NAME: qwen/qwen3-vl-235b-a22b-instruct
+      MIDSCENE_MODEL_FAMILY: qwen3-vl
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_READINESS_DB: ${{ secrets.NOTION_READINESS_DB }}
+      NOTION_AUDIT_DB: ${{ secrets.NOTION_AUDIT_DB }}
+      UX_AGENT: hiring-coach-lab2 # matrix row the UX cell updates (the deployed hiring-coach widget)
+    steps:
+      - name: Checkout the QA feature branch (midscene-qa lives here)
+        uses: actions/checkout@v4
+        with:
+          ref: feat/cef-qa-vault-client
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install midscene-qa deps
+        working-directory: midscene-qa
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chrome + system deps
+        working-directory: midscene-qa
+        run: npx playwright install --with-deps chrome
+
+      - name: Install xvfb (virtual display for headed Chrome)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install qa-agent deps (for notion-push)
+        run: |
+          corepack enable
+          pnpm -C qa-agent install --frozen-lockfile
+
+      - name: Run UX suite (T1/T2) under xvfb
+        working-directory: midscene-qa
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ux-pw.json
+        # Never fail the step on test failures — the JSON captures the real result and the push
+        # reflects it. (A crash still yields no_go via build-ux-result.mjs.)
+        run: |
+          set +e
+          xvfb-run -a npx playwright test ./e2e/hiring-coach.spec.ts --project=chrome --headed --reporter=list,html,json
+          echo "playwright exit: $?"
+          set -e
+
+      - name: Build UX result JSON
+        working-directory: midscene-qa
+        run: node scripts/build-ux-result.mjs ux-pw.json ux-result.json
+
+      - name: Push UX result to Notion (UX matrix cell + audit-trail row)
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+        run: |
+          pnpm -C qa-agent exec tsx notion-push.ts \
+            --dimension UX --agent "$UX_AGENT" \
+            --result "${{ github.workspace }}/midscene-qa/ux-result.json" \
+            --conversation-id "ux-${{ github.run_id }}" \
+            --report-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --trigger "$TRIGGER" --source CI || true
+
+      - name: Upload UX report (HTML report + trace + result)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ux-report
+          path: |
+            midscene-qa/playwright-report
+            midscene-qa/ux-result.json
+            midscene-qa/test-results
+          if-no-files-found: ignore

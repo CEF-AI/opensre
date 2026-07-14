@@ -201,28 +201,22 @@ async function main(): Promise<void> {
     children: reportText ? reportBlocks(reportText) : undefined,
   });
 
-  // 4) Rolling windowed health — for each window compute one combined cell "emoji N% (p/t)" so the
-  //    verdict-health and uptime read together. Windows (1d/3d/7d) become switchable dashboard views.
-  const cells: Record<number, string> = {};
-  for (const days of [1, 3, 7]) {
-    const { passes, total } = await rollingWindow(notion, agentPageId, dimension, days);
-    cells[days] = windowCell(passes, total, verdict); // dot/word = latest verdict; % = window uptime
-  }
-
-  // 5) Upsert the matrix — Functional select mirrors the LATEST verdict (authoritative status);
-  //    the per-window cells add the delta.
-  const matrixProps: Record<string, any> = {
-    [dimension]: select(verdictLabel),
-    'Manifest Version': rich(manifestVersion),
-    'Latest RCA': rich(rootCause),
-    'Last checked': { date: { start: new Date().toISOString() } },
-  };
-  if (confidenceSel) matrixProps.Confidence = select(confidenceSel);
-  // Per-window cells are per-dimension; only Functional exists today (add UX/Quality when wired).
+  // 5) Upsert the matrix. The row is shared per-agent across dimensions, so each dimension writes
+  //    ONLY its own cell — never another dimension's. The shared columns (Manifest Version, Latest
+  //    RCA, Confidence, Last checked, Functional windowed cells) belong to Functional; a UX/Quality
+  //    push must not clobber them.
+  const matrixProps: Record<string, any> = { [dimension]: select(verdictLabel) };
   if (dimension === 'Functional') {
-    if (cells[1]) matrixProps['Functional (1d)'] = rich(cells[1]);
-    if (cells[3]) matrixProps['Functional (3d)'] = rich(cells[3]);
-    if (cells[7]) matrixProps['Functional (7d)'] = rich(cells[7]);
+    // Rolling windowed health — one combined cell "emoji N% (p/t)" per window (the 1d/3d/7d views).
+    for (const days of [1, 3, 7]) {
+      const { passes, total } = await rollingWindow(notion, agentPageId, dimension, days);
+      const cell = windowCell(passes, total, verdict); // dot/word = latest verdict; % = window uptime
+      if (cell) matrixProps[`Functional (${days}d)`] = rich(cell);
+    }
+    matrixProps['Manifest Version'] = rich(manifestVersion);
+    matrixProps['Latest RCA'] = rich(rootCause);
+    matrixProps['Last checked'] = { date: { start: new Date().toISOString() } };
+    if (confidenceSel) matrixProps['Confidence'] = select(confidenceSel);
   }
   await notion.pages.update({ page_id: agentPageId, properties: matrixProps as any });
 

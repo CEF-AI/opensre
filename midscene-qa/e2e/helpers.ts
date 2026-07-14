@@ -96,3 +96,18 @@ export async function openWidget(page: Page): Promise<Frame> {
   }
   throw new Error('Hiring Coach widget frame ("Analyze an interview") never appeared');
 }
+
+// Bring a widget element into the viewport before a Midscene vision step. The widget is a tall
+// iframe, and Midscene reasons over the VISIBLE viewport screenshot — if the target renders below
+// the fold (or lazy-loads), the model can't see it. Scroll it into view + settle first. Native +
+// free; matches the Midscene docs' "confirm readiness / scroll into view before asserting" guidance.
+export async function reveal(frame: Frame, re: RegExp, settleMs = 700): Promise<void> {
+  await frame
+    .getByText(re)
+    .first()
+    .scrollIntoViewIfNeeded({ timeout: 8000 })
+    .catch(() => {
+      /* not present yet / already in view — the AI step will still try */
+    });
+  await frame.page().waitForTimeout(settleMs);
+}

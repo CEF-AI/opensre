@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { PlaywrightAgent } from '@midscene/web/playwright';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { openWidget } from './helpers';
+import { openWidget, reveal } from './helpers';
 
 // Hiring Coach — Result widget UX tests, FULLY AI (Midscene vision) for the widget flow. Key
 // ordering: NATIVE login first (openWidget), THEN create the Midscene agent — so the vision model's
@@ -17,8 +17,10 @@ const ANALYSIS_START_MS = 90_000;
 
 // T1 · The widget loads (install assumed; the curator just opens it).
 test('T1 · widget loads', async ({ page }) => {
-  await openWidget(page); // native login + open agent + grant widget-signing permission
+  const w = await openWidget(page); // native login + open agent + grant widget-signing permission
   const ai = new PlaywrightAgent(page); // Midscene engages only AFTER login
+  await reveal(w, /record meeting/i); // scroll the input view into the viewport before asserting
+  await page.screenshot({ path: 'test-results/t1-ready.png', fullPage: true }).catch(() => {});
   await ai.aiAssert(
     'The Hiring Coach widget shows an "Analyze an interview" view with an "Import recording" option and a "Record meeting" option',
   );
@@ -30,13 +32,18 @@ test('T2 · import → clip accepted → analysis starts', async ({ page }) => {
   const w = await openWidget(page);
   const ai = new PlaywrightAgent(page);
 
+  await reveal(w, /candidate name|analyze an interview/i);
   await ai.aiInput('QA Test Candidate', 'the "Candidate name or ID" text field');
 
   // File selection has no vision equivalent — inject via the hidden file input (native).
   await w.locator('input[type=file]').first().setInputFiles(CLIP_MP3);
+  await reveal(w, /new upload|captured/i);
   await ai.aiAssert('A "New upload" card is shown with the captured clip duration');
 
+  await reveal(w, /analyze interview/i);
   await ai.aiTap('the "Analyze interview" button');
+  await reveal(w, /uploading|analyz/i);
+  await page.screenshot({ path: 'test-results/t2-analysing.png', fullPage: true }).catch(() => {});
   await ai.aiAssert('The widget shows that it is uploading or analysing the interview');
 });
 

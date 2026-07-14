@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 import { PlaywrightAgent } from '@midscene/web/playwright';
-import { openWidget } from './helpers';
+import { openWidget, reveal } from './helpers';
 
 // "Record meeting" tests. Runs ONLY under the `chrome-media` project (playwright.config), which fakes
 // the mic with our WAV and auto-accepts screen/tab capture so the mic + tab-audio flow runs without
@@ -13,9 +13,10 @@ const ANALYSIS_START_MS = 90_000;
 // T4 · Record via microphone → stop → analysis starts (mic audio = our fake WAV).
 test('T4 · record (mic) → stop → analysis starts', async ({ page }) => {
   test.setTimeout(ANALYSIS_START_MS + 240_000);
-  await openWidget(page);
+  const w = await openWidget(page);
   const ai = new PlaywrightAgent(page);
 
+  await reveal(w, /record meeting/i);
   await ai.aiTap('the "Record meeting" button');
   await ai.aiWaitFor('a recording is in progress — a live waveform/timer and a "Stop" button are shown');
 

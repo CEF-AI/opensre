@@ -28,7 +28,9 @@ export default defineConfig({
     ['@midscene/web/playwright-reporter', { type: 'merged' }],
   ],
   use: {
-    viewport: { width: 1280, height: 768 },
+    // Tall viewport so more of the (tall) widget iframe is on-screen — Midscene reasons over the
+    // visible viewport, so more visible = fewer off-screen misses. reveal() still scrolls per step.
+    viewport: { width: 1280, height: 2000 },
     trace: 'on', // record the full step-by-step trace on every run, not just retries
     screenshot: 'on',
   },

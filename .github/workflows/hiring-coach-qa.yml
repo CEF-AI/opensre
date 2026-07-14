@@ -27,8 +27,13 @@ on:
   # Scheduled runs are DISABLED for now — re-enable (uncomment) when Krishna says.
   # When enabled it runs twice a day; until then, trigger manually from the Actions tab.
   # schedule:
-  #   - cron: "0 6,18 * * *" # twice a day — 06:00 & 18:00 UTC
-  workflow_dispatch: {} # manual trigger
+  #   - cron: "0 6,18 * * *" # twice a day — 06:00 & 18:00 UTC (version-gated, no force)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "QA the current version even if no new manifest was published (always produces a report)"
+        type: boolean
+        default: true
 
 jobs:
   qa:
@@ -105,8 +110,15 @@ jobs:
         run: |
           set -euo pipefail
           : > "$QA_EMIT_FILE"   # start empty
+          # Manual dispatch (force=true) → re-QA the current version even if unchanged, so a manual
+          # run always produces a report. Scheduled runs stay version-gated (no --force).
+          FORCE_FLAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          echo "force flag: ${FORCE_FLAG:-<none>}"
           pnpm exec tsx manifest-watch.ts \
-            --apply --no-state \
+            --apply --no-state $FORCE_FLAG \
             --wallet "$CEF_WALLET_PATH" --password "$CEF_WALLET_PASSWORD" \
             --clips HIA-C1  # single clip = one e2e execution run per version (QA is execution, not scoring)
           echo "emitted $(wc -l < "$QA_EMIT_FILE" | tr -d ' ') alert(s)"

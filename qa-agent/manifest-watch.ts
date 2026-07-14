@@ -43,6 +43,10 @@ const NO_EVAL = has('--no-eval');
 // version. The vault connection version IS the persistent state — act iff the connection is behind
 // the published version, so a version is QA'd exactly once (right when we upgrade to it).
 const NO_STATE = has('--no-state');
+// Force mode (manual/on-demand): run the eval + QA even when the connection is already on the
+// published version. Still upgrades first if the connection is behind. Without it, behaviour is
+// version-gated (only QA a newly published version) — that's the scheduled/auto path.
+const FORCE = has('--force');
 const WALLET = expand(arg('--wallet') ?? join(homedir(), 'RustroverProjects/hiring-coach-eval/wallet.json'));
 const PASSWORD = arg('--password') ?? 'cef-agents';
 // One clip = one end-to-end execution run to QA per version. QA verifies execution health
@@ -75,7 +79,9 @@ async function main(): Promise<void> {
   console.log(`[watch] running  = ${running}   status=${current?.status ?? '-'}`);
   console.log(`[watch] state    = ${NO_STATE ? 'stateless (connection vs published)' : `handled=${lastCid || '(none)'}`}`);
 
-  if (NO_STATE) {
+  if (FORCE) {
+    console.log('[watch] FORCE — re-QA regardless of version (manual/on-demand).');
+  } else if (NO_STATE) {
     // Stateless: only act when the connection is behind the published version.
     if (!needInstall) {
       console.log('[watch] connection is on the published version — nothing to do.');
@@ -85,7 +91,11 @@ async function main(): Promise<void> {
     console.log('[watch] already QA’d this published version — nothing to do.');
     return;
   }
-  console.log(`[watch] NEW version → ${needInstall ? `install ${running} → ${latest.version}` : 'already installed'}, then eval [${CLIPS}]`);
+  console.log(
+    FORCE && !needInstall
+      ? `[watch] re-QA current version ${running} (no upgrade needed), then eval [${CLIPS}]`
+      : `[watch] NEW version → ${needInstall ? `install ${running} → ${latest.version}` : 'already installed'}, then eval [${CLIPS}]`,
+  );
 
   if (!APPLY) {
     console.log('\n[watch] DRY-RUN (no --apply): nothing mutated. Re-run with --apply to install + eval.');

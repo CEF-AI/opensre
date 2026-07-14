@@ -1,50 +1,36 @@
-import { test, expect } from '@playwright/test';
+import { test as base } from '@playwright/test';
+import { PlaywrightAiFixture } from '@midscene/web/playwright';
 import { openWidget } from './helpers';
 
-// Hiring Coach — "Record meeting" tests. Runs ONLY under the `chrome-media` project (see
-// playwright.config.ts), which fakes the microphone with our WAV and auto-accepts screen/tab
-// capture, so the mic + tab-audio flow (getUserMedia + getDisplayMedia) runs without human clicks.
+// "Record meeting" tests, FULLY AI. Runs ONLY under the `chrome-media` project (playwright.config),
+// which fakes the mic with our WAV and auto-accepts screen/tab capture so the mic + tab-audio flow
+// (getUserMedia + getDisplayMedia) runs without human clicks. SCOPE: up to "analyse audio".
 //
-// SCOPE (for now): up to "analyse audio" — Record → recording UI → Stop → analysis starts.
-// Result-completion + playback are deferred (backend processing >5min on qaagent-vault; see
-// QA-UX-STATUS.md).
-//
-// ⚠ NOT YET VALIDATED LIVE: getDisplayMedia auto-capture (--auto-accept-this-tab-capture) in headed
-// Chrome via Playwright is unproven here. If the tab dialog still blocks, options in QA-UX-STATUS.md.
+// ⚠ NOT YET VALIDATED LIVE: getDisplayMedia auto-capture in headed Chrome via Playwright is unproven
+// (QA-UX-STATUS.md §8 step 2). Result-completion + playback are deferred (§6).
+const test = base.extend(PlaywrightAiFixture());
 
-const RECORD_SECONDS = 12; // keep short — the 5-min deadline should never be needed for this
+const RECORD_SECONDS = 12;
 const ANALYSIS_START_MS = 90_000;
 
-async function startRecordingAndStop(page: import('@playwright/test').Page) {
-  const w = await openWidget(page);
-
-  // Start recording. Fake-media flags auto-grant the mic and auto-accept the tab-capture dialog.
-  await w.getByText(/record meeting/i).first().click({ timeout: 10_000 });
-
-  // Recording UI: waveform + timer + a Stop control (from the widget: "⏸ Stop").
-  const stop = w.getByRole('button', { name: /stop/i }).first();
-  await expect(stop).toBeVisible({ timeout: 20_000 });
-
-  // Record for a short, fixed window (the fake mic plays our clip), then stop.
-  await page.waitForTimeout(RECORD_SECONDS * 1000);
-  await stop.click({ timeout: 10_000 });
-
-  // Reaches upload/analysis — audio captured + ASR kicked off (the "till analyse audio" checkpoint).
-  await expect(w.getByText(/uploading|analyz/i).first()).toBeVisible({ timeout: ANALYSIS_START_MS });
-  return w;
-}
-
 // T4 · Record via microphone → stop → analysis starts (mic audio = our fake WAV).
-test('T4 · record (mic) → stop → analysis starts', async ({ page }) => {
+test('T4 · record (mic) → stop → analysis starts', async ({ page, aiTap, aiAssert, aiWaitFor }) => {
   test.setTimeout(ANALYSIS_START_MS + 240_000);
-  await startRecordingAndStop(page);
+  await openWidget(page);
+
+  await aiTap('the "Record meeting" button');
+  // Fake-media flags auto-grant the mic + auto-accept the tab-capture dialog; recording should start.
+  await aiWaitFor('a recording is in progress — a live waveform/timer and a "Stop" button are shown');
+
+  await page.waitForTimeout(RECORD_SECONDS * 1000); // fake mic plays our clip
+  await aiTap('the "Stop" button to end the recording');
+
+  await aiAssert('The widget shows that it is uploading or analysing the recording');
 });
 
-// T5 · Record with tab audio → analysis starts. Same flow; the distinguishing input is a tab
-// playing known audio. Needs --auto-select-desktop-capture-source + a tab playing the clip — kept as
-// fixme until the tab-audio capture path is validated (see QA-UX-STATUS.md).
+// T5 · Record with tab audio → analysis starts. Needs a tab playing the clip + auto-select of that
+// source — kept as fixme until validated (QA-UX-STATUS.md §8 step 3).
 test.fixme('T5 · record (tab audio) → stop → analysis starts', async () => {});
 
-// DEFERRED (need a completed result): T4b · recorded result completes within the 5-min deadline,
-// plays back, and downloads. Blocked on backend processing speed.
+// DEFERRED (need a completed result): recorded result completes ≤5min, plays back, downloads.
 test.fixme('T4b · recorded result completes ≤5min, plays back, downloads', async () => {});

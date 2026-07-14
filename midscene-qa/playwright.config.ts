@@ -2,6 +2,10 @@ import 'dotenv/config';
 import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
+// Reuse Midscene's AI element-location plans across runs (fast + free for action steps; re-plans
+// only when the widget changes). NB: aiAssert/aiQuery still call the model each run — not cached.
+process.env.MIDSCENE_CACHE ||= '1';
+
 // Absolute path to the fake microphone input (a real WAV Chromium feeds to getUserMedia).
 const FAKE_MIC_WAV = resolve(process.cwd(), 'fixtures/test-clip.wav');
 
@@ -15,12 +19,16 @@ export default defineConfig({
   workers: 1,
   reporter: [
     ['list'],
-    // Emits an interactive HTML report to midscene_run/report/ showing each AI step.
+    // Playwright HTML report + trace — captures EVERY step (native Playwright AND Midscene AI
+    // fallbacks), with screenshots + a timeline. This is the complete UX report (→ Notion report-url).
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    // Midscene report — supplementary "what the vision model saw" for the AI steps only.
     ['@midscene/web/playwright-reporter', { type: 'merged' }],
   ],
   use: {
     viewport: { width: 1280, height: 768 },
-    trace: 'on-first-retry',
+    trace: 'on', // record the full step-by-step trace on every run, not just retries
+    screenshot: 'on',
   },
   projects: [
     // Default: deterministic tests (login, T1, T2, exploration). No media fakery needed.

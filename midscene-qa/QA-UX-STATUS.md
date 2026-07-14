@@ -109,25 +109,25 @@ Notes: `--headed` (the Cere wallet iframe + capture behave better headed). Cold 
 6. **CI** — add a workflow (or extend hiring-coach-qa.yml) to run the UX suite; record tests likely
    need headed + xvfb.
 
-## 8b. Midscene (vision) — validated
-The Midscene path is live: `e2e/midscene-smoke.spec.ts` runs a real `aiAssert` against the widget
-(Qwen3-VL via OpenRouter, key set in `.env`) and passes. Strategy: **native Playwright for
-deterministic steps** (T1/T2 — free, robust), **Midscene `aiAssert`/`aiTap` for vision-only steps**
-(recording waveform, timeline threshold colors, "did the play head move", result-card look) — which
-live on the record/result views, gated on §6. Benign warning on setup ("execution context
-destroyed" during a mid-navigation style inject) — non-fatal; add a short `waitForTimeout` before the
-first ai call if it recurs. Extend the Midscene fixture via
-`base.extend(PlaywrightAiFixture())` from `@midscene/web/playwright`; it reasons over a screenshot so
-it sees iframe content too.
+## 8b. Test style — FULLY AI (decided) with caching
+The widget flow is driven **fully by Midscene vision** (`ai`/`aiTap`/`aiInput`/`aiAssert`) — chosen
+because the widget is versioned + not our DOM, so vision survives layout/structure changes, and every
+step then shows in the Midscene report. Extend the fixture via `base.extend(PlaywrightAiFixture())`
+from `@midscene/web/playwright` (it reasons over a screenshot, so it sees iframe content). Validated
+live: a real `aiAssert` against the widget passes (Qwen3-VL via OpenRouter, key in `.env`).
 
-## 8c. Deterministic-first, AI-fallback (the test style)
-`e2e/smart.ts` provides `smartClick` / `smartFill` / `smartVisible`: try the native Playwright
-locator first (fast, free), and on failure fall back to Midscene vision (`aiTap` / `aiInput` /
-`aiAssert`) and **log the fallback** — a logged fallback means the native selector drifted and should
-be refreshed. Best of both: native cost/speed when the widget is stable, vision resilience when it
-changes (the widget is versioned + not our DOM). T1/T2 use this; **T0** proves it (deliberately
-broken selector → recovers via vision, returns `'ai'`). File upload stays pure native (no vision
-equivalent for injecting a file). Optional: set `MIDSCENE_CACHE=1` to reuse AI plans across runs.
+- **Caching** (`MIDSCENE_CACHE`, set in `playwright.config.ts`): reuses the AI's element-location
+  plan for ACTION steps (`aiTap`/`aiInput`) across runs → fast + free, re-plans only when the widget
+  changes. **`aiAssert`/`aiQuery` are NOT cached** — they evaluate the live screen every run, so each
+  assertion still costs one vision call. So repeat runs = cheap actions + per-run assertion cost.
+- **Two native exceptions (deliberate):** (1) **login** — the Cere OTP wallet iframe is setup, not
+  the widget under test, and flaky/expensive to drive by vision; (2) **file upload** — `setInputFiles`
+  only (can't inject a file by vision).
+- Benign setup warning "execution context destroyed" (mid-navigation style inject) — non-fatal; add a
+  short `waitForTimeout` before the first ai call if it recurs.
+- **Optional hybrid:** `e2e/smart.ts` (`smartClick`/`smartFill`/`smartVisible`) still exists — native
+  locator first, Midscene vision on failure, logged. NOT used by the default fully-AI specs; available
+  if a deterministic-first mode is wanted later.
 
 ## 9. Related
 - Functional QA + Notion dashboard: `opensre/qa-agent/`, `.github/workflows/hiring-coach-qa.yml`,

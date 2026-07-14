@@ -22,10 +22,8 @@
 name: hiring-coach QA
 
 on:
-  # Scheduled runs are DISABLED for now — re-enable (uncomment) when Krishna says.
-  # When enabled it runs twice a day; until then, trigger manually from the Actions tab.
-  # schedule:
-  #   - cron: "0 6,18 * * *" # twice a day — 06:00 & 18:00 UTC (version-gated, no force)
+  schedule:
+    - cron: "0 6,18 * * *" # twice a day — 06:00 & 18:00 UTC; force-QAs so uptime gets 2 samples/day
   workflow_dispatch:
     inputs:
       force:
@@ -103,11 +101,12 @@ jobs:
         run: |
           set -euo pipefail
           : > "$QA_EMIT_FILE"
-          # Manual dispatch (force=true) → re-QA the current version even if unchanged, so a manual
-          # run always produces a report. Scheduled runs stay version-gated (no --force).
-          FORCE_FLAG=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
-            FORCE_FLAG="--force"
+          # Force-QA (re-QA the current version even if unchanged) on BOTH the twice-daily schedule
+          # and manual dispatch, so every run produces a report + a fresh uptime sample. Only a manual
+          # dispatch with force=false stays version-gated (QA only a newly published version).
+          FORCE_FLAG="--force"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" != "true" ]; then
+            FORCE_FLAG=""
           fi
           echo "force flag: ${FORCE_FLAG:-<none>}"
           pnpm exec tsx manifest-watch.ts \

@@ -1,48 +1,65 @@
-import { test, expect } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
+import { PlaywrightAiFixture } from '@midscene/web/playwright';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { openWidget } from './helpers';
+import { smartClick, smartFill, smartVisible } from './smart';
 
-// Hiring Coach — Result widget UX tests. SCOPE (for now): up to "analyse audio" — i.e. the widget
-// loads, a clip is accepted, and processing STARTS. Result-completion, playback and seek are
-// deferred: on qaagent-vault a 12s clip does not finish processing within 5 min (backend Whisper
-// throughput block — see QA-UX-STATUS.md). Those tests live below as test.fixme until a vault where
-// processing completes is available.
+// Hiring Coach — Result widget UX tests. Approach: deterministic-first, AI-fallback (see smart.ts) —
+// native Playwright when the widget is stable, Midscene vision when a selector drifts (the widget is
+// versioned + not our DOM, so it will change). SCOPE for now: up to "analyse audio". Result
+// completion / playback / seek are deferred (backend processing >5min on qaagent-vault — QA-UX-STATUS.md).
+const test = base.extend(PlaywrightAiFixture());
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLIP_MP3 = resolve(HERE, '../fixtures/test-clip-12s.mp3');
-const ANALYSIS_START_MS = 90_000; // time allowed to reach the "uploading/analysing" state
+const ANALYSIS_START_MS = 90_000;
+
+// T0 · Proof the AI fallback fires: a deliberately-wrong native selector must fall back to Midscene
+// vision and still confirm the element. (Guards that the deterministic-first, AI-fallback path works.)
+test('T0 · AI fallback fires when the native selector is broken', async ({ page, aiAssert }) => {
+  const w = await openWidget(page);
+  const bogus = w.getByText(/__nonexistent_selector_zzz__/i).first();
+  const via = await smartVisible(bogus, aiAssert,
+    'a "Record meeting" option is visible in the Hiring Coach widget', 3000);
+  expect(via).toBe('ai'); // native failed → recovered via the vision model
+});
 
 // T1 · The widget loads (install assumed; the curator just opens it).
-test('T1 · widget loads', async ({ page }) => {
+test('T1 · widget loads', async ({ page, aiAssert }) => {
   const w = await openWidget(page);
-  await expect(w.getByText(/analyze an interview/i).first()).toBeVisible();
-  await expect(w.getByText(/import recording/i).first()).toBeVisible();
-  await expect(w.getByText(/record meeting/i).first()).toBeVisible();
+  await smartVisible(w.getByText(/analyze an interview/i).first(), aiAssert,
+    'the "Analyze an interview" heading is visible in the Hiring Coach widget');
+  await smartVisible(w.getByText(/import recording/i).first(), aiAssert,
+    'an "Import recording" option is visible');
+  await smartVisible(w.getByText(/record meeting/i).first(), aiAssert,
+    'a "Record meeting" option is visible');
 });
 
 // T2 · Import a clip → upload accepted → analysis starts (the "till analyse audio" checkpoint).
-test('T2 · import → clip accepted → analysis starts', async ({ page }) => {
+test('T2 · import → clip accepted → analysis starts', async ({ page, aiTap, aiInput, aiAssert }) => {
   test.setTimeout(ANALYSIS_START_MS + 200_000);
   const w = await openWidget(page);
 
-  await w.locator('input[type=text]').first().fill('QA Test Candidate').catch(() => {});
+  await smartFill(w.locator('input[type=text]').first(), 'QA Test Candidate', aiInput,
+    'the "Candidate name or ID" text field');
+
+  // File selection has no vision equivalent — you can't inject a file by looking at the screen — so
+  // this step is inherently native (setInputFiles on the hidden file input).
   await w.locator('input[type=file]').first().setInputFiles(CLIP_MP3);
 
   // The selected clip shows as a "New upload · 0:12 captured" card.
-  await expect(w.getByText(/new upload/i).first()).toBeVisible({ timeout: 15_000 });
-  await expect(w.getByText(/captured/i).first()).toBeVisible();
+  await smartVisible(w.getByText(/new upload/i).first(), aiAssert,
+    'a "New upload" card with a captured clip duration is shown');
 
   // Start analysis, then confirm it reaches upload/analysing — audio accepted, ASR kicked off.
-  const analyze = w.getByRole('button', { name: /analyze interview/i }).first();
-  if (await analyze.count().catch(() => 0)) await analyze.click({ timeout: 8_000 }).catch(() => {});
-  await expect(w.getByText(/uploading|analyz/i).first()).toBeVisible({ timeout: ANALYSIS_START_MS });
+  await smartClick(w.getByRole('button', { name: /analyze interview/i }).first(), aiTap,
+    'the "Analyze interview" button');
+  await smartVisible(w.getByText(/uploading|analyz/i).first(), aiAssert,
+    'the widget shows it is uploading or analysing the interview', ANALYSIS_START_MS);
 });
 
-// ── DEFERRED (need a completed result; blocked on backend processing speed) ───────────────────
-// T2b · result completes within the 5-min deadline (11–12s clip should be fast).
+// ── DEFERRED (need a completed result; blocked on backend processing speed — see QA-UX-STATUS.md) ──
 test.fixme('T2b · result completes within the processing deadline', async () => {});
-// T3 · playback: click Play → the timeline/timer advances (guards the 2-hour temp-credential expiry).
 test.fixme('T3 · playback advances (fresh result, non-expired audio link)', async () => {});
-// T3b · seek: click a point on the conversation timeline → playback jumps to that section.
 test.fixme('T3b · timeline seek jumps to the clicked section', async () => {});

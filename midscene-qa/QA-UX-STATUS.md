@@ -120,6 +120,15 @@ first ai call if it recurs. Extend the Midscene fixture via
 `base.extend(PlaywrightAiFixture())` from `@midscene/web/playwright`; it reasons over a screenshot so
 it sees iframe content too.
 
+## 8c. Deterministic-first, AI-fallback (the test style)
+`e2e/smart.ts` provides `smartClick` / `smartFill` / `smartVisible`: try the native Playwright
+locator first (fast, free), and on failure fall back to Midscene vision (`aiTap` / `aiInput` /
+`aiAssert`) and **log the fallback** — a logged fallback means the native selector drifted and should
+be refreshed. Best of both: native cost/speed when the widget is stable, vision resilience when it
+changes (the widget is versioned + not our DOM). T1/T2 use this; **T0** proves it (deliberately
+broken selector → recovers via vision, returns `'ai'`). File upload stays pure native (no vision
+equivalent for injecting a file). Optional: set `MIDSCENE_CACHE=1` to reuse AI plans across runs.
+
 ## 9. Related
 - Functional QA + Notion dashboard: `opensre/qa-agent/`, `.github/workflows/hiring-coach-qa.yml`,
   and the memory note `notion-qa-readiness-dashboard`.

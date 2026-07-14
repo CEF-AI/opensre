@@ -17,6 +17,8 @@ export default defineConfig({
   expect: { timeout: 30 * 1000 },
   fullyParallel: false,
   workers: 1,
+  // The Cere wallet login (fresh-vault provisioning) is timing-sensitive on CI — retry a flaky run.
+  retries: process.env.CI ? 2 : 0,
   reporter: [
     ['list'],
     // Playwright HTML report + trace — captures EVERY step (native Playwright AND Midscene AI

@@ -109,6 +109,17 @@ Notes: `--headed` (the Cere wallet iframe + capture behave better headed). Cold 
 6. **CI** — add a workflow (or extend hiring-coach-qa.yml) to run the UX suite; record tests likely
    need headed + xvfb.
 
+## 8b. Midscene (vision) — validated
+The Midscene path is live: `e2e/midscene-smoke.spec.ts` runs a real `aiAssert` against the widget
+(Qwen3-VL via OpenRouter, key set in `.env`) and passes. Strategy: **native Playwright for
+deterministic steps** (T1/T2 — free, robust), **Midscene `aiAssert`/`aiTap` for vision-only steps**
+(recording waveform, timeline threshold colors, "did the play head move", result-card look) — which
+live on the record/result views, gated on §6. Benign warning on setup ("execution context
+destroyed" during a mid-navigation style inject) — non-fatal; add a short `waitForTimeout` before the
+first ai call if it recurs. Extend the Midscene fixture via
+`base.extend(PlaywrightAiFixture())` from `@midscene/web/playwright`; it reasons over a screenshot so
+it sees iframe content too.
+
 ## 9. Related
 - Functional QA + Notion dashboard: `opensre/qa-agent/`, `.github/workflows/hiring-coach-qa.yml`,
   and the memory note `notion-qa-readiness-dashboard`.

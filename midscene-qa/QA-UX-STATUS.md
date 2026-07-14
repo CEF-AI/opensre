@@ -144,6 +144,27 @@ live: a real `aiAssert` against the widget passes (Qwen3-VL via OpenRouter, key 
   row body, HTML report linked via Report URL / uploaded artifact). Delete the probe workflow once
   the full job is green. The `ux` job runs T1/T2 today; add T4/T5 when the backend unblocks (§6).
 
+## 8e. CI run status + the login-flakiness blocker (current)
+The full `ux` job is wired and its **plumbing all works** on CI: setup (Node + Chrome + xvfb + npm +
+pnpm), run the suite, `build-ux-result.mjs` → verdict + MD, `notion-push --dimension UX` (updates the
+UX cell + appends a UX audit row), `--attach` uploads the zipped HTML report + `ux-summary.md` as
+file blocks, artifact upload. Local: T1 + T2 green (fully-AI, reveal/viewport, manual agent).
+
+**Blocker — flaky Cere login on CI (not viewport).** On CI, T1 passes (login flakes once, recovers
+on the retry) but **T2 fails: `openWidget` → "widget frame never appeared"** on all 3 attempts — i.e.
+the login/fresh-vault-provisioning failed, *before* any vision step. Root cause: **every test does
+its own full login** (fresh Playwright context), and the Cere wallet + fresh-vault provisioning is
+slow/flaky on CI; doing it repeatedly (per test × retries) compounds it.
+
+**The real fix (next):** log in ONCE and reuse the session — Playwright **`storageState`** via a
+global-setup/auth project: one login saves cookies+localStorage (the embedded-wallet keypair /
+provisioned vault), every test loads that state and skips re-login. Standard Playwright auth pattern;
+removes the repeated-login flakiness. Then re-validate T1/T2 on CI + confirm the HTML/MD attachments
+land on the audit row (attach code committed but not yet validated on a green run).
+
+Other options if storageState doesn't persist the wallet session: (a) run T1+T2 as one test (login
+once); (b) harden `login()` + bump retries; (c) a longer provisioning wait.
+
 ## 9. Related
 - Functional QA + Notion dashboard: `opensre/qa-agent/`, `.github/workflows/hiring-coach-qa.yml`,
   and the memory note `notion-qa-readiness-dashboard`.

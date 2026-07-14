@@ -25,7 +25,9 @@ jobs:
 
       - name: Install midscene-qa deps
         working-directory: midscene-qa
-        run: npm ci
+        # npm install (not `npm ci`) — package-lock.json is gitignored repo-wide, so there's no
+        # committed lockfile to `ci` against.
+        run: npm install --no-audit --no-fund
 
       - name: Install Chrome + system deps
         working-directory: midscene-qa

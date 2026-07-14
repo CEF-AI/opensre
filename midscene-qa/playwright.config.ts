@@ -1,20 +1,21 @@
 import 'dotenv/config';
+import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+
+// Absolute path to the fake microphone input (a real WAV Chromium feeds to getUserMedia).
+const FAKE_MIC_WAV = resolve(process.cwd(), 'fixtures/test-clip.wav');
 
 // Midscene drives a real browser and calls a multimodal LLM per AI step,
 // so tests are slower than selector-based ones — give them generous timeouts.
 export default defineConfig({
   testDir: './e2e',
-  // AI steps take a few seconds each; a login + multi-step flow easily exceeds
-  // 2 min uncached. Generous timeout; caching cuts real runtime dramatically.
   timeout: 480 * 1000,
   expect: { timeout: 30 * 1000 },
   fullyParallel: false,
   workers: 1,
   reporter: [
     ['list'],
-    // Emits an interactive HTML report to midscene_run/report/ showing
-    // each AI step, the screenshot it reasoned over, and what it did.
+    // Emits an interactive HTML report to midscene_run/report/ showing each AI step.
     ['@midscene/web/playwright-reporter', { type: 'merged' }],
   ],
   use: {
@@ -22,8 +23,33 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    // Use the system-installed Google Chrome (channel: 'chrome') instead of
-    // Playwright's bundled Chromium, so no browser download is required.
-    { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    // Default: deterministic tests (login, T1, T2, exploration). No media fakery needed.
+    {
+      name: 'chrome',
+      testIgnore: /record\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+    },
+    // Record tests (T4/T5): Chromium fakes the mic with a WAV and auto-accepts screen/tab capture so
+    // the "Record meeting" flow (mic + tab audio via getUserMedia + getDisplayMedia) runs without
+    // human clicks. Only *-record.spec.ts runs here. NOTE: getDisplayMedia auto-capture in headed
+    // Chrome is not yet validated end-to-end — see QA-UX-STATUS.md.
+    {
+      name: 'chrome-media',
+      testMatch: /record\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chrome',
+        permissions: ['microphone', 'camera'],
+        launchOptions: {
+          args: [
+            '--use-fake-ui-for-media-stream', // auto-grant mic/cam prompts
+            '--use-fake-device-for-media-stream',
+            `--use-file-for-fake-audio-capture=${FAKE_MIC_WAV}%noloop`, // feed our clip as the mic
+            '--auto-accept-this-tab-capture', // auto-accept getDisplayMedia for the current tab
+            '--autoplay-policy=no-user-gesture-required',
+          ],
+        },
+      },
+    },
   ],
 });

@@ -5,6 +5,14 @@ export const VAULT_URL = process.env.VAULT_URL ?? 'https://vault.compute.test.dd
 export const TEST_EMAIL = process.env.VAULT_TEST_EMAIL ?? 'qaagent@cere.io';
 export const TEST_OTP = process.env.VAULT_TEST_OTP ?? '555555';
 
+// The deployed Manykind hiring agent (hiring-coach only, no Lab) — the widget users see.
+export const AGENT_URL =
+  process.env.AGENT_URL ??
+  'https://vault.compute.test.ddcdragon.com/agents/148c4da814d9a7e9f5ffe8fb934c29b8931bdc49b9503d21d9454c869c77d5ac%3Ahiring-coach-lab2';
+
+// The Hiring Coach — Result widget renders in a sandboxed iframe hosted on the S3 gateway.
+export const WIDGET_IFRAME = 'iframe[src*="hiringcoach-public/widgets"]';
+
 // The Cere embedded-wallet login runs in a cross-origin iframe (wallet.stage.cere.io/authorize).
 const authFrame = (page: Page): Frame | undefined =>
   page.frames().find((f) => /cere\.io\/authorize/.test(f.url()));
@@ -44,14 +52,47 @@ export async function login(page: Page, _ai?: unknown): Promise<void> {
   await auth.getByText(/^verify$/i).first().click();
 
   // Wallet connects, then the vault provisions ("Creating security vault /
-  // Provisioning your encrypted storage"). Wait for that to clear before returning.
-  await page.waitForTimeout(6000);
-  await page
+  // Provisioning your encrypted storage"). qaagent's vault provisions fresh each
+  // login, so wait for that screen to APPEAR, then to CLEAR — otherwise a
+  // check-too-early passes instantly and we navigate mid-provision (→ Connect wallet).
+  const provisioning = page
     .getByText(/provisioning your encrypted storage|creating security vault/i)
-    .first()
-    .waitFor({ state: 'hidden', timeout: 120000 })
-    .catch(() => {
-      /* provisioning screen may not have appeared (already provisioned) */
-    });
-  await page.waitForTimeout(3000);
+    .first();
+  await provisioning.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {
+    /* already provisioned / never showed */
+  });
+  await provisioning.waitFor({ state: 'hidden', timeout: 180000 }).catch(() => {
+    /* took longer than 3 min, or never showed */
+  });
+  await page.waitForTimeout(4000);
+}
+
+// Log in, open the deployed hiring agent, grant the one-time widget-signing permission, and return
+// the widget's iframe Frame (with its "Analyze an interview" input view ready). Shared by T1–T5.
+export async function openWidget(page: Page): Promise<Frame> {
+  await login(page);
+
+  await page.goto(AGENT_URL);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(5000);
+
+  // One-time "Allow widgets to sign with your wallet?" — the widget can't load data until allowed.
+  const allow = page.getByRole('button', { name: /^allow$/i }).first();
+  if (await allow.count().catch(() => 0)) {
+    await allow.click({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(5000);
+  }
+
+  // Wait for the widget iframe to appear AND its input view to render. Generous, because on a cold
+  // first login the vault provisions fresh and the widget can take a while to load its content.
+  const deadline = Date.now() + 150_000;
+  while (Date.now() < deadline) {
+    // A late "Allow" prompt can still appear as the widget initializes — dismiss it if so.
+    const late = page.getByRole('button', { name: /^allow$/i }).first();
+    if (await late.count().catch(() => 0)) await late.click({ timeout: 4000 }).catch(() => {});
+    const f = page.frames().find((fr) => /hiringcoach-public\/widgets/.test(fr.url()));
+    if (f && (await f.getByText(/analyze an interview/i).first().count().catch(() => 0))) return f;
+    await page.waitForTimeout(3000);
+  }
+  throw new Error('Hiring Coach widget frame ("Analyze an interview") never appeared');
 }

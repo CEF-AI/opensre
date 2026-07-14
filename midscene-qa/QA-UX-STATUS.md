@@ -129,6 +129,21 @@ live: a real `aiAssert` against the widget passes (Qwen3-VL via OpenRouter, key 
   locator first, Midscene vision on failure, logged. NOT used by the default fully-AI specs; available
   if a deterministic-first mode is wanted later.
 
+## 8d. CI integration — status
+- **CI login validated ✅** — `.github/workflows/ux-login-probe.yml` (manual) proved the Cere wallet
+  login + widget render work on a headless ubuntu runner **under xvfb** (native probe
+  `e2e/ci-login-probe.spec.ts`, no OpenRouter). Runner setup: `actions/checkout` (ref
+  feat/cef-qa-vault-client) → `setup-node@20` → `npm install` (NOT `npm ci` — lockfile is gitignored)
+  → `npx playwright install --with-deps chrome` → `apt-get install xvfb` → `xvfb-run -a npx playwright
+  test … --headed`.
+- **Secrets set:** `MIDSCENE_MODEL_API_KEY` (OpenRouter), `NOTION_TOKEN/NOTION_READINESS_DB/NOTION_AUDIT_DB`.
+- **Next (the full UX job):** add a parallel `ux` job to `hiring-coach-qa.yml` (same cron + manual):
+  run the UX suite under xvfb with the OpenRouter key → produce a `ux-result.json` (verdict + MD
+  summary) → `opensre notion-push --dimension UX --agent hiring-coach-lab2 --result ux-result.json
+  --report-url <CI run>` (updates the UX matrix cell + appends a UX audit-trail row; MD summary in the
+  row body, HTML report linked via Report URL / uploaded artifact). Delete the probe workflow once
+  the full job is green. The `ux` job runs T1/T2 today; add T4/T5 when the backend unblocks (§6).
+
 ## 9. Related
 - Functional QA + Notion dashboard: `opensre/qa-agent/`, `.github/workflows/hiring-coach-qa.yml`,
   and the memory note `notion-qa-readiness-dashboard`.

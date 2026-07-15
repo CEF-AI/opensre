@@ -182,12 +182,23 @@ async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   console.error(`[quality-bar] vault=${vaultId.slice(0, 14)}… agent=${AGENT_ID.slice(0, 24)}… clips=${QUALITY_BAR_CLIPS.length} run_id=${runId}`);
 
-  // Sequential clip processing — one clip at a time, wait for it to finish
-  // (or time out) before starting the next. Keeps cluster load predictable.
+  // Grouped processing (Bren's guidance): fire in groups of GROUP_SIZE, stagger each publish within a
+  // group by STAGGER_MS, and wait for the whole group to finish before the next. Caps concurrent
+  // cluster/whisper load at GROUP_SIZE, and the stagger keeps the wallet-signed publishes
+  // nonce-sequential (concurrent signing would race). Order is preserved for the per_clip output.
+  const GROUP_SIZE = Number(process.env.QUALITY_GROUP_SIZE ?? 4);
+  const STAGGER_MS = Number(process.env.QUALITY_STAGGER_MS ?? 2000);
   const outcomes: ClipOutcome[] = [];
-  for (const clip of QUALITY_BAR_CLIPS) {
-    const outcome = await processClip(vault, vaultId, clip);
-    outcomes.push(outcome);
+  for (let i = 0; i < QUALITY_BAR_CLIPS.length; i += GROUP_SIZE) {
+    const group = QUALITY_BAR_CLIPS.slice(i, i + GROUP_SIZE);
+    console.error(`[quality-bar] group ${i / GROUP_SIZE + 1}: ${group.map((c) => c.clip).join(', ')}`);
+    const groupOutcomes = await Promise.all(
+      group.map(async (clip, j) => {
+        await new Promise((r) => setTimeout(r, j * STAGGER_MS)); // stagger publishes → nonce-safe
+        return processClip(vault, vaultId, clip);
+      }),
+    );
+    outcomes.push(...groupOutcomes);
   }
 
   const clipsPassed = outcomes.filter((o) => o.pass).length;

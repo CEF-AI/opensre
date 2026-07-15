@@ -228,3 +228,59 @@ jobs:
             midscene-qa/ux-result.json
             midscene-qa/test-results
           if-no-files-found: ignore
+  # Quality dimension — the hiring-coach quality bar (16 clips → per-clip pass/fail → pass_ratio),
+  # IN PARALLEL to Functional/UX. Pure eval numbers (no OpenSRE/QA-agent). The script lives in
+  # qa-agent (transferred from agent-catalog PR #80, so no cross-repo checkout). Targets the eval AS
+  # 5df19be7 (same QA-vault wallet as the Functional job).
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # 16 clips × ~1 min (more if cluster whisper is throttled)
+    env:
+      VAULT_URL: https://vault-api.compute.test.ddcdragon.com
+      CEF_AGENT_SERVICE_PUBKEY: "0x5df19be727730d88cb64539a52f6f263d3353eb7dff6a66a31c8e9de05addcca"
+      HIRING_AGENT_ALIAS: hiring-coach-lab2
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_READINESS_DB: ${{ secrets.NOTION_READINESS_DB }}
+      NOTION_AUDIT_DB: ${{ secrets.NOTION_AUDIT_DB }}
+    steps:
+      - name: Checkout the QA feature branch (qa-agent lives here)
+        uses: actions/checkout@v4
+        with:
+          ref: feat/cef-qa-vault-client
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install qa-agent deps
+        run: pnpm -C qa-agent install --frozen-lockfile
+
+      - name: Write QA wallet
+        run: printf '%s' "${{ secrets.CEF_WALLET_B64 }}" | base64 -d > "$RUNNER_TEMP/wallet.json"
+
+      - name: Run the quality bar (16 clips) → row.json
+        run: |
+          pnpm -C qa-agent exec tsx quality-bar-run.ts \
+            --wallet "$RUNNER_TEMP/wallet.json" --password "${{ secrets.CEF_WALLET_PASSWORD }}" \
+            --out "${{ github.workspace }}/quality-row.json"
+
+      - name: Push Quality result to Notion (Quality cell + audit row + delta)
+        env:
+          TRIGGER: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+        run: |
+          pnpm -C qa-agent exec tsx quality-push.ts \
+            --row "${{ github.workspace }}/quality-row.json" \
+            --agent "$HIRING_AGENT_ALIAS" \
+            --report-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --trigger "$TRIGGER" || true
+
+      - name: Upload quality row
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-row
+          path: quality-row.json
+          if-no-files-found: ignore

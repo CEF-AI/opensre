@@ -191,7 +191,7 @@ async function main(): Promise<void> {
   const outcomes: ClipOutcome[] = [];
   for (let i = 0; i < QUALITY_BAR_CLIPS.length; i += GROUP_SIZE) {
     const group = QUALITY_BAR_CLIPS.slice(i, i + GROUP_SIZE);
-    console.error(`[quality-bar] group ${i / GROUP_SIZE + 1}: ${group.map((c) => c.clip).join(', ')}`);
+    console.error(`[quality-bar] group ${i / GROUP_SIZE + 1}: ${group.map((c) => c.clip_code).join(', ')}`);
     const groupOutcomes = await Promise.all(
       group.map(async (clip, j) => {
         await new Promise((r) => setTimeout(r, j * STAGGER_MS)); // stagger publishes → nonce-safe

@@ -235,19 +235,27 @@ async function main(): Promise<void> {
     children: reportText ? reportBlocks(reportText) : undefined,
   });
 
-  // Attach files (e.g. the HTML report + an MD summary) to the audit row body — uploaded to Notion
-  // and appended as downloadable file blocks. Best-effort; a failed attach never fails the push.
+  // Add attachments to the audit row body. IMAGES (screenshots) become inline image blocks — they
+  // render right in the row, nothing to click/download. Other files (e.g. an HTML report zip) become
+  // downloadable file blocks. Best-effort; a failed attach never fails the push.
+  const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
   if (attach.length && (audit as any).id) {
     const blocks: any[] = [];
     for (const f of attach) {
       const id = await uploadFileToNotion(TOKEN, f);
-      if (id) blocks.push({ object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id } } });
+      if (!id) continue;
+      blocks.push(
+        IMG_EXT.test(f)
+          ? { object: 'block', type: 'image', image: { type: 'file_upload', file_upload: { id } } }
+          : { object: 'block', type: 'file', file: { type: 'file_upload', file_upload: { id } } },
+      );
     }
     if (blocks.length) {
       await notion.blocks.children.append({ block_id: (audit as any).id, children: blocks }).catch((e) =>
         console.log(`[notion-push] attach append failed: ${e instanceof Error ? e.message : String(e)}`),
       );
-      console.log(`[notion-push] attached ${blocks.length}/${attach.length} file(s) to the audit row`);
+      const imgs = blocks.filter((b) => b.type === 'image').length;
+      console.log(`[notion-push] added ${imgs} inline image(s) + ${blocks.length - imgs} file(s) to the audit row`);
     }
   }
 

@@ -1,14 +1,11 @@
-import { test, expect } from '@playwright/test';
-import { PlaywrightAgent } from '@midscene/web/playwright';
+import { test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { openWidget, reveal } from './helpers';
 
-// Hiring Coach — Result widget UX tests, FULLY AI (Midscene vision) for the widget flow. Key
-// ordering: NATIVE login first (openWidget), THEN create the Midscene agent — so the vision model's
-// page instrumentation never runs during the flaky Cere wallet login (which broke on CI when the
-// PlaywrightAiFixture instrumented the page mid-login). Login is 100% native (proven by the CI
-// probe); Midscene engages only once the widget is up. AI plans cached (MIDSCENE_CACHE).
+// Hiring Coach — Result widget UX tests, FULLY AI (Midscene vision) for the widget flow. The login +
+// provisioning WAITS are aiWaitFor-driven (state-based, not fixed sleeps) — the CI-flake fix.
+// openWidget returns the widget frame + the Midscene agent (reused here). AI plans cached.
 // SCOPE for now: up to "analyse audio" — completion/playback/seek deferred (QA-UX-STATUS.md §6).
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -17,8 +14,7 @@ const ANALYSIS_START_MS = 90_000;
 
 // T1 · The widget loads (install assumed; the curator just opens it).
 test('T1 · widget loads', async ({ page }) => {
-  const w = await openWidget(page); // native login + open agent + grant widget-signing permission
-  const ai = new PlaywrightAgent(page); // Midscene engages only AFTER login
+  const { frame: w, agent: ai } = await openWidget(page); // aiWaitFor-driven login; agent reused
   await reveal(w, /record meeting/i); // scroll the input view into the viewport before asserting
   await page.screenshot({ path: 'test-results/t1-ready.png', fullPage: true }).catch(() => {});
   await ai.aiAssert(
@@ -29,8 +25,7 @@ test('T1 · widget loads', async ({ page }) => {
 // T2 · Import a clip → upload accepted → analysis starts (the "till analyse audio" checkpoint).
 test('T2 · import → clip accepted → analysis starts', async ({ page }) => {
   test.setTimeout(ANALYSIS_START_MS + 200_000);
-  const w = await openWidget(page);
-  const ai = new PlaywrightAgent(page);
+  const { frame: w, agent: ai } = await openWidget(page);
 
   await reveal(w, /candidate name|analyze an interview/i);
   await ai.aiInput('QA Test Candidate', 'the "Candidate name or ID" text field');

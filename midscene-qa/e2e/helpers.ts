@@ -1,4 +1,5 @@
 import type { Page, Frame } from '@playwright/test';
+import { PlaywrightAgent } from '@midscene/web/playwright';
 
 // Target: the Vault UI (where a hiring-coach run's result / widget is rendered to the user).
 export const VAULT_URL = process.env.VAULT_URL ?? 'https://vault.compute.test.ddcdragon.com/';
@@ -17,7 +18,7 @@ export const WIDGET_IFRAME = 'iframe[src*="hiringcoach-public/widgets"]';
 const authFrame = (page: Page): Frame | undefined =>
   page.frames().find((f) => /cere\.io\/authorize/.test(f.url()));
 
-async function waitForAuthFrame(page: Page, timeoutMs = 20000): Promise<Frame> {
+async function waitForAuthFrame(page: Page, timeoutMs = 25000): Promise<Frame> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const f = authFrame(page);
@@ -27,80 +28,85 @@ async function waitForAuthFrame(page: Page, timeoutMs = 20000): Promise<Frame> {
   throw new Error('Cere wallet authorize iframe never appeared');
 }
 
-// Native (no vision-model) login to the Vault via the Cere embedded wallet:
-//   Connect wallet → "I already have a wallet" → email + Sign In → OTP + Verify.
-// Deterministic + free (no OpenRouter calls). The second arg is ignored — kept so
-// older AI-based callers don't break.
-export async function login(page: Page, _ai?: unknown): Promise<void> {
+// State-based wait (the Midscene way). With an agent, `aiWaitFor` vision-polls until the DESCRIBED
+// state is true — the fix for CI flakiness: we wait on what's actually on screen (vault provisioned,
+// widget rendered), not a fixed clock. Without an agent (old specs), fall back to a fixed sleep.
+async function waitFor(page: Page, agent: PlaywrightAgent | undefined, desc: string, timeout: number, fallbackMs: number) {
+  if (agent) {
+    await agent.aiWaitFor(desc, { timeout }).catch(() => {
+      /* aiWaitFor throws on timeout; the following native step still tries/asserts */
+    });
+  } else {
+    await page.waitForTimeout(fallbackMs);
+  }
+}
+
+// Login to the Vault via the Cere embedded wallet. Clicks/fills stay native (deterministic iframe
+// locators); the WAITS use aiWaitFor when an agent is passed (state-based, robust on slow CI) —
+// especially the fresh-vault provisioning wait that was the CI flake.
+export async function login(page: Page, agent?: PlaywrightAgent): Promise<void> {
   await page.goto(VAULT_URL);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(3000);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await waitFor(page, agent, 'a "Connect wallet" button is visible', 60_000, 3000);
 
-  await page.getByRole('button', { name: /connect wallet/i }).first().click({ timeout: 15000 });
+  await page.getByRole('button', { name: /connect wallet/i }).first().click({ timeout: 20000 });
 
+  await waitFor(page, agent, 'a Cere wallet dialog with an "I already have a wallet" option is visible', 60_000, 4000);
   let auth = await waitForAuthFrame(page);
-  await auth.getByText(/i already have a wallet/i).first().click({ timeout: 15000 });
-  await page.waitForTimeout(4000);
+  await auth.getByText(/i already have a wallet/i).first().click({ timeout: 20000 });
 
+  await waitFor(page, agent, 'an email input field and a "Sign In" button are visible', 60_000, 4000);
   auth = await waitForAuthFrame(page);
   await auth.locator('input[type=email]').first().fill(TEST_EMAIL);
   await auth.getByText(/^sign in$/i).first().click();
-  await page.waitForTimeout(5000);
 
+  await waitFor(page, agent, 'a 6-digit verification code entry field is visible', 60_000, 5000);
   auth = await waitForAuthFrame(page);
   await auth.locator('input[maxlength="6"]').first().fill(TEST_OTP);
   await auth.getByText(/^verify$/i).first().click();
 
-  // Wallet connects, then the vault provisions ("Creating security vault /
-  // Provisioning your encrypted storage"). qaagent's vault provisions fresh each
-  // login, so wait for that screen to APPEAR, then to CLEAR — otherwise a
-  // check-too-early passes instantly and we navigate mid-provision (→ Connect wallet).
-  const provisioning = page
-    .getByText(/provisioning your encrypted storage|creating security vault/i)
-    .first();
-  await provisioning.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {
-    /* already provisioned / never showed */
-  });
-  await provisioning.waitFor({ state: 'hidden', timeout: 180000 }).catch(() => {
-    /* took longer than 3 min, or never showed */
-  });
-  await page.waitForTimeout(4000);
+  // The vault provisions fresh ("Creating security vault"). Wait for the DASHBOARD to be ready — the
+  // exact step that flaked on CI when we used a fixed timeout.
+  await waitFor(
+    page,
+    agent,
+    'the vault dashboard is fully loaded — the left sidebar shows "Explore agents" and the scopes list — and any "Creating security vault" / "Provisioning your encrypted storage" screen is gone',
+    200_000,
+    12000,
+  );
 }
 
 // Log in, open the deployed hiring agent, grant the one-time widget-signing permission, and return
-// the widget's iframe Frame (with its "Analyze an interview" input view ready). Shared by T1–T5.
-export async function openWidget(page: Page): Promise<Frame> {
-  await login(page);
+// the widget's iframe Frame + the Midscene agent (reused by the test). Waits are aiWaitFor-driven.
+export async function openWidget(page: Page): Promise<{ frame: Frame; agent: PlaywrightAgent }> {
+  // Bump the network-idle wait so Midscene tolerates the slow CI → test-cluster path after actions.
+  const agent = new PlaywrightAgent(page, { waitForNetworkIdleTimeout: 20_000 });
+
+  await login(page, agent);
 
   await page.goto(AGENT_URL);
   await page.waitForLoadState('networkidle').catch(() => {});
-  await page.waitForTimeout(5000);
 
-  // One-time "Allow widgets to sign with your wallet?" — the widget can't load data until allowed.
-  const allow = page.getByRole('button', { name: /^allow$/i }).first();
-  if (await allow.count().catch(() => 0)) {
-    await allow.click({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(5000);
-  }
+  // One-time "Allow widgets to sign with your wallet?" — native click; may appear now or during init.
+  const clickAllow = async () => {
+    const a = page.getByRole('button', { name: /^allow$/i }).first();
+    if (await a.count().catch(() => 0)) await a.click({ timeout: 8000 }).catch(() => {});
+  };
+  await agent.aiWaitFor('the "Manykind - Hiring Assistant" agent page is shown (Widgets/Activity tabs), or a "Allow widgets to sign with your wallet?" dialog is visible', { timeout: 120_000 }).catch(() => {});
+  await clickAllow();
 
-  // Wait for the widget iframe to appear AND its input view to render. Generous, because on a cold
-  // first login the vault provisions fresh and the widget can take a while to load its content.
-  const deadline = Date.now() + 150_000;
-  while (Date.now() < deadline) {
-    // A late "Allow" prompt can still appear as the widget initializes — dismiss it if so.
-    const late = page.getByRole('button', { name: /^allow$/i }).first();
-    if (await late.count().catch(() => 0)) await late.click({ timeout: 4000 }).catch(() => {});
-    const f = page.frames().find((fr) => /hiringcoach-public\/widgets/.test(fr.url()));
-    if (f && (await f.getByText(/analyze an interview/i).first().count().catch(() => 0))) return f;
-    await page.waitForTimeout(3000);
-  }
-  throw new Error('Hiring Coach widget frame ("Analyze an interview") never appeared');
+  // Wait — by state — for the widget's input view to actually render (vision sees the iframe).
+  await agent.aiWaitFor('the Hiring Coach widget shows the "Analyze an interview" view with "Import recording" and "Record meeting" options', { timeout: 150_000 });
+  await clickAllow(); // late-prompt guard
+
+  const frame = page.frames().find((fr) => /hiringcoach-public\/widgets/.test(fr.url()));
+  if (!frame) throw new Error('Hiring Coach widget iframe not found after it rendered');
+  return { frame, agent };
 }
 
 // Bring a widget element into the viewport before a Midscene vision step. The widget is a tall
 // iframe, and Midscene reasons over the VISIBLE viewport screenshot — if the target renders below
-// the fold (or lazy-loads), the model can't see it. Scroll it into view + settle first. Native +
-// free; matches the Midscene docs' "confirm readiness / scroll into view before asserting" guidance.
+// the fold (or lazy-loads), the model can't see it. Scroll it into view + settle first.
 export async function reveal(frame: Frame, re: RegExp, settleMs = 700): Promise<void> {
   await frame
     .getByText(re)

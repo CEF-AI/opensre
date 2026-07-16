@@ -67,6 +67,23 @@ async function scoreHistory(notion: Client, agentPageId: string, days: number): 
   return scores;
 }
 
+// The last `n` Quality pass_ratios (most recent n runs), newest first — run-based, not time-based.
+// Includes the run we just recorded (created before the matrix update). n ≤ 100 → one query.
+async function lastNScores(notion: Client, agentPageId: string, n: number): Promise<number[]> {
+  const page: any = await notion.databases.query({
+    database_id: AUDIT_DB,
+    filter: {
+      and: [
+        { property: 'Agent', relation: { contains: agentPageId } },
+        { property: 'Dimension', select: { equals: 'Quality' } },
+      ],
+    },
+    sorts: [{ property: 'Timestamp', direction: 'descending' }],
+    page_size: n,
+  });
+  return page.results.map((r: any) => r.properties?.Score?.number).filter((s: any) => typeof s === 'number');
+}
+
 async function main(): Promise<void> {
   if (!TOKEN || !READINESS_DB || !AUDIT_DB) bail('missing NOTION_TOKEN / NOTION_READINESS_DB / NOTION_AUDIT_DB');
   const rowPath = arg('--row');
@@ -134,21 +151,38 @@ async function main(): Promise<void> {
   });
   await notion.pages.create({ parent: { database_id: AUDIT_DB }, properties: auditProps as any, children: body as any });
 
-  // Matrix cells: 1d = latest score + delta; 3d/7d = rolling average pass_ratio. scoreHistory now
-  // includes the row we just created (don't re-append the current run — that would double-count it).
   const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : ratio);
+
+  // Day-based windows (kept untouched for the existing 1d/3d/7d views). scoreHistory includes the row
+  // we just created (don't re-append the current run — that would double-count it).
   const avg3 = avg(await scoreHistory(notion, agentPageId, 3));
   const avg7 = avg(await scoreHistory(notion, agentPageId, 7));
+
+  // Run-based windows (Fred's reframe): last 1 = latest score + pp-delta vs previous; last 3/7/10 =
+  // rolling avg pass_ratio over the most recent N runs. Percentage only — no x/y (that's the "score"
+  // confusion). Raw per-clip counts live in the audit-row body / drill-down.
+  const deltaPp = prevRatio == null ? null : Math.round((ratio - prevRatio) * 100);
+  const deltaPpStr = deltaPp == null || deltaPp === 0 ? '' : ` ${deltaPp > 0 ? '▲' : '▼'}${Math.abs(deltaPp)}`;
+  const rAvg3 = avg(await lastNScores(notion, agentPageId, 3));
+  const rAvg7 = avg(await lastNScores(notion, agentPageId, 7));
+  const rAvg10 = avg(await lastNScores(notion, agentPageId, 10));
+
   await notion.pages.update({
     page_id: agentPageId,
     properties: {
+      // Day windows (unchanged shape).
       'Quality (1d)': rich(`${emoji(ratio)} ${passed}/${total} · ${pct(ratio)}${deltaStr}`),
       'Quality (3d)': rich(`${emoji(avg3)} avg ${pct(avg3)}`),
       'Quality (7d)': rich(`${emoji(avg7)} avg ${pct(avg7)}`),
+      // Run windows.
+      'Quality (last 1)': rich(`${emoji(ratio)} ${pct(ratio)}${deltaPpStr}`),
+      'Quality (last 3)': rich(`${emoji(rAvg3)} avg ${pct(rAvg3)}`),
+      'Quality (last 7)': rich(`${emoji(rAvg7)} avg ${pct(rAvg7)}`),
+      'Quality (last 10)': rich(`${emoji(rAvg10)} avg ${pct(rAvg10)}`),
     } as any,
   }).catch((e) => console.log(`[quality-push] matrix update failed: ${e instanceof Error ? e.message : e}`));
 
-  console.log(`[quality-push] Quality ${passed}/${total} (${pct(ratio)})${deltaStr} for ${agent} → 3d avg ${pct(avg3)}, 7d avg ${pct(avg7)}`);
+  console.log(`[quality-push] Quality ${pct(ratio)}${deltaPpStr} for ${agent} → last3 ${pct(rAvg3)}, last7 ${pct(rAvg7)}, last10 ${pct(rAvg10)}`);
 }
 
 main().catch((e) => bail(`FAILED — ${e instanceof Error ? e.message : String(e)}`));

@@ -129,6 +129,29 @@ async function rollingWindow(notion: Client, agentPageId: string, dimension: str
   return { passes, total };
 }
 
+// Pass/total over the last `n` RUNS (most recent n audit rows) for one agent+dimension — run-based,
+// not time-based. Ordered by Timestamp desc so we take the newest n regardless of when they ran. The
+// just-recorded run is included (created before this runs). n ≤ 100 so a single query suffices.
+async function lastNRuns(notion: Client, agentPageId: string, dimension: string, n: number): Promise<{ passes: number; total: number }> {
+  const page: any = await notion.databases.query({
+    database_id: AUDIT_DB,
+    filter: {
+      and: [
+        { property: 'Agent', relation: { contains: agentPageId } },
+        { property: 'Dimension', select: { equals: dimension } },
+      ],
+    },
+    sorts: [{ property: 'Timestamp', direction: 'descending' }],
+    page_size: n,
+  });
+  let passes = 0, total = 0;
+  for (const r of page.results) {
+    total += 1;
+    if ((r.properties?.Verdict?.select?.name ?? '') === '🟢 Pass') passes += 1;
+  }
+  return { passes, total };
+}
+
 // One combined cell: current status (dot+word from the LATEST verdict) + window uptime %.
 // The dot reflects "is it up right now" — green when the latest run passed, even if the window had
 // an earlier blip; the % carries the reliability. Empty if no runs in the window.
@@ -264,8 +287,21 @@ async function main(): Promise<void> {
   //    RCA, Confidence, Last checked, Functional windowed cells) belong to Functional; a UX/Quality
   //    push must not clobber them.
   const matrixProps: Record<string, any> = { [dimension]: select(verdictLabel) };
+
+  // Run-based windows (Fred's reframe: recent RUNS, not days) for THIS dimension. Each is its own
+  // cell (`<Dim> (last N)`), so every dimension writes them safely — no shared-column clobber.
+  //   last 1  → just the latest verdict (a 1-run "uptime" of 0/100% is meaningless).
+  //   last 3/7/10 → dot/word = latest verdict; % = uptime over the last N runs. No x/y (a fraction
+  //   reads like a score and confused people); the raw counts live only in the drill-down toggle.
+  matrixProps[`${dimension} (last 1)`] = rich(verdictLabel);
+  for (const n of [3, 7, 10]) {
+    const { passes, total } = await lastNRuns(notion, agentPageId, dimension, n);
+    const cell = windowCell(passes, total, verdict);
+    if (cell) matrixProps[`${dimension} (last ${n})`] = rich(cell);
+  }
+
   if (dimension === 'Functional') {
-    // Rolling windowed health — one combined cell "emoji N% (p/t)" per window (the 1d/3d/7d views).
+    // Day-based windows — kept untouched for the existing 1d/3d/7d views (useful later).
     for (const days of [1, 3, 7]) {
       const { passes, total } = await rollingWindow(notion, agentPageId, dimension, days);
       const cell = windowCell(passes, total, verdict); // dot/word = latest verdict; % = window uptime

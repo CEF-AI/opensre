@@ -284,3 +284,37 @@ jobs:
           name: quality-row
           path: quality-row.json
           if-no-files-found: ignore
+
+  # Post-job: rebuild the per-agent "Last 10 runs" toggle + "Best today" line on each readiness page.
+  # Runs ONCE after all three dimension jobs (needs) so it never races their parallel pushes, and with
+  # `always()` so it still refreshes from whatever landed even if a dimension job failed. Code runs
+  # from the feature branch (same ref pin as the other jobs).
+  dashboard:
+    needs: [qa, ux, quality]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_READINESS_DB: ${{ secrets.NOTION_READINESS_DB }}
+      NOTION_AUDIT_DB: ${{ secrets.NOTION_AUDIT_DB }}
+    steps:
+      - name: Checkout the QA feature branch (qa-agent lives here)
+        uses: actions/checkout@v4
+        with:
+          ref: feat/cef-qa-vault-client
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install qa-agent deps
+        run: pnpm -C qa-agent install --frozen-lockfile
+
+      - name: Rebuild the Last-10-runs toggle on each agent page
+        run: |
+          pnpm -C qa-agent exec tsx dashboard-toggle.ts \
+            --agent hiring-coach-lab2 --agent hiring-coach-qa || true

@@ -153,7 +153,7 @@ DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 
 # DDC Dragon decentralized inference network (custom wrapped inference API).
 # Override via DDCDRAGON_BASE_URL / DDCDRAGON_MODEL / DDCDRAGON_BUCKET / DDCDRAGON_VERSION.
-DDCDRAGON_BASE_URL = "https://orchestrator.compute.test.ddcdragon.com/api/v1/inference"
+DDCDRAGON_BASE_URL = "https://inference-gateway.compute.dev.ddcdragon.com/api/v1/inference"
 DDCDRAGON_MODEL = "gemma4_31b"
 DDCDRAGON_BUCKET = 1338
 DDCDRAGON_VERSION = "v1.0.0"

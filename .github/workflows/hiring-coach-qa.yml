@@ -59,8 +59,8 @@ jobs:
       GRAFANA_READ_TOKEN: ${{ secrets.GRAFANA_READ_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_DEFAULT_CHAT_ID: ${{ secrets.TELEGRAM_DEFAULT_CHAT_ID }}
-      # SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}          # enable when available
-      # SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }} # RCA → #manykind-agents-qa
     steps:
       - name: Checkout the QA feature branch (code runs from here, not main)
         uses: actions/checkout@v5

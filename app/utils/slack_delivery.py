@@ -154,16 +154,14 @@ def build_action_blocks(
 def _merge_payload(
     channel: str,
     text: str,
-    thread_ts: str,
+    thread_ts: str | None,
     blocks: list[dict[str, Any]] | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build Slack payload by merging base config with optional blocks and any extra keys."""
-    payload: dict[str, Any] = {
-        "channel": channel,
-        "text": text,
-        "thread_ts": thread_ts,
-    }
+    payload: dict[str, Any] = {"channel": channel, "text": text}
+    if thread_ts:  # omit for a top-level (non-threaded) post
+        payload["thread_ts"] = thread_ts
     if blocks:
         payload["blocks"] = blocks
     if extra:
@@ -225,6 +223,14 @@ def send_slack_report(
                 **extra,
             )
             return (True, "") if webhook_ok else (False, "webhook=failed")
+        # No thread + no webhook → standalone top-level post via bot token, resolved from env
+        # (SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL) if the caller didn't pass them. Lets scheduled /
+        # CLI investigations (e.g. the QA agent) post an RCA with no inbound Slack context — mirrors
+        # how Telegram falls back to env creds. chat.postMessage with no thread_ts posts top-level.
+        env_token = access_token or os.getenv("SLACK_BOT_TOKEN", "").strip()
+        env_channel = channel or os.getenv("SLACK_DEFAULT_CHANNEL", "").strip() or SLACK_CHANNEL
+        if env_token and env_channel:
+            return _post_direct(slack_message, env_channel, None, env_token, blocks=blocks, **extra)
         logger.debug("[slack] Delivery skipped: no thread_ts (channel=%s)", channel)
         debug_print("Slack delivery skipped: no thread_ts and no Slack webhook configured.")
         return False, "no_thread_ts"
@@ -251,7 +257,7 @@ def send_slack_report(
 def _post_direct(
     text: str,
     channel: str,
-    thread_ts: str,
+    thread_ts: str | None,
     token: str,
     *,
     blocks: list[dict[str, Any]] | None = None,

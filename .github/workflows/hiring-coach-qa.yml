@@ -170,6 +170,14 @@ jobs:
               --result "$RESULT" --alert "$alert" --dimension Functional --trigger "$TRIGGER" || true
           done < "$ALERTS"
 
+      - name: Upload Functional result (for the deploy-QA summary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-result
+          path: qa-result.json
+          if-no-files-found: ignore
+
   # UX dimension — Midscene/Playwright tests of the deployed hiring-coach widget, IN PARALLEL to the
   # Functional `qa` job (same cron + manual triggers). Scope for now: T1/T2 (up to "analyse audio").
   ux:
@@ -352,7 +360,8 @@ jobs:
 
   # Deploy-triggered QA summary: only when this run was fired with `prs` (i.e. a human ran the
   # workflow to QA a Stage deploy). Posts the per-dimension result + the deployed PR links to Slack.
-  # `always()` so a failed dimension still reports; no correlation — just surfaces the PRs.
+  # `always()` so a failed dimension still reports. Posts the WHOLE verdict — real per-dimension
+  # verdicts (from each job's result artifact, not job status) + the full Functional RCA + the PRs.
   deploy_summary:
     needs: [qa, ux, quality]
     if: ${{ always() && inputs.prs != '' }}
@@ -362,11 +371,17 @@ jobs:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
     steps:
-      - name: Post deploy-QA summary + deployed PRs to Slack
+      - name: Checkout (summary formatter lives on main with this workflow)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Download dimension results
+        uses: actions/download-artifact@v4
+        with:
+          path: art
+        continue-on-error: true # a skipped/failed dimension just won't have an artifact
+      - name: Post the whole deploy-QA verdict to Slack
         env:
-          FN: ${{ needs.qa.result }}
-          UX: ${{ needs.ux.result }}
-          QL: ${{ needs.quality.result }}
           PRS: ${{ inputs.prs }}
           COMPONENT: ${{ inputs.component }}
           THREAD_TS: ${{ inputs.slack_thread_ts }}
@@ -380,17 +395,16 @@ jobs:
           if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "$CHAN" ]; then
             echo "Slack not configured — skipping summary."; exit 0
           fi
-          em() { case "$1" in success) echo "🟢 pass";; failure) echo "🔴 fail";; skipped) echo "⚪ skipped";; *) echo "⚪ $1";; esac; }
-          OVERALL="🟢 PASS"
-          if [ "$FN" = "failure" ] || [ "$UX" = "failure" ] || [ "$QL" = "failure" ]; then OVERALL="🔴 FAIL"; fi
-          BULLETS=$(printf '%s' "$PRS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^$/d;s/^/• /')
-          HEAD="🧪 *Deploy QA ${OVERALL}*"; [ -n "${COMPONENT:-}" ] && HEAD="${HEAD} — ${COMPONENT}"
-          TEXT=$(printf '%s\nFunctional: %s   ·   Quality: %s   ·   UX: %s\n<%s|QA run>\n\n*Deployed PRs:*\n%s' \
-            "$HEAD" "$(em "$FN")" "$(em "$QL")" "$(em "$UX")" "$RUN_URL" "$BULLETS")
+          FN=$(find art -name qa-result.json 2>/dev/null | head -1)
+          QL=$(find art -name quality-row.json 2>/dev/null | head -1)
+          UX=$(find art -name ux-result.json 2>/dev/null | head -1)
+          TEXT=$(python3 .github/scripts/qa_deploy_summary.py \
+            --functional "$FN" --quality "$QL" --ux "$UX" \
+            --prs "$PRS" --component "$COMPONENT" --run-url "$RUN_URL")
           # Reply in the request's thread when the poller passed slack_thread_ts; else post top-level.
           curl -sS -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             --data "$(jq -n --arg ch "$CHAN" --arg t "$TEXT" --arg tts "$THREAD_TS" \
               '{channel:$ch, text:$t} + (if $tts != "" then {thread_ts:$tts} else {} end)')" \
-            | jq -r 'if .ok then "posted deploy-QA summary" else "slack error: " + (.error // "unknown") end'
+            | jq -r 'if .ok then "posted whole deploy-QA verdict" else "slack error: " + (.error // "unknown") end'

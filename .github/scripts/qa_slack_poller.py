@@ -25,9 +25,10 @@ import urllib.parse
 import urllib.request
 
 TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
-CHANNEL = os.environ.get("SLACK_CHANNEL_ID", "C0BGKCUBK97")
-BOT_USER = os.environ.get("SLACK_BOT_USER", "U0BHY8BRGQM")
-WINDOW_MIN = int(os.environ.get("QA_POLL_WINDOW_MIN", "40"))
+# `or` (not get's default) so an env set to "" by an unset GitHub secret falls back correctly.
+CHANNEL = os.environ.get("SLACK_CHANNEL_ID") or "C0BGKCUBK97"
+BOT_USER = os.environ.get("SLACK_BOT_USER") or "U0BHY8BRGQM"
+WINDOW_MIN = int(os.environ.get("QA_POLL_WINDOW_MIN") or "40")
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 
 PR_RE = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+", re.I)

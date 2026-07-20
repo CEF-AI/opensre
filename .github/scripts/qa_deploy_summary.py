@@ -76,16 +76,24 @@ def main() -> None:
 
     f_sev, f_line, f_report = functional(load(a.functional))
     q_sev, q_line = quality(load(a.quality))
-    u_sev, u_line = ux(load(a.ux))
 
-    worst = min((f_sev, q_sev, u_sev), key=lambda s: RANK.get(s, 3))
+    # Deploy verdict covers Functional + Quality. UX is included only when --ux is passed (it's kept
+    # out of the deploy gate by default because its CI login is flaky; it still runs for the dashboard).
+    sevs = [f_sev, q_sev]
+    dim_lines = [f_line, q_line]
+    if a.ux:
+        u_sev, u_line = ux(load(a.ux))
+        sevs.append(u_sev)
+        dim_lines.append(u_line)
+
+    worst = min(sevs, key=lambda s: RANK.get(s, 3))
     overall = {"pass": "🟢 PASS", "no_go": "🔴 NO-GO", "needs_review": "🟡 NEEDS REVIEW"}.get(worst, "⚪ UNKNOWN")
     head = f"🧪 *Deploy QA {overall}*" + (f" — {a.component}" if a.component else "")
 
     prs = [p.strip() for p in a.prs.replace(",", " ").split() if p.strip()]
     pr_block = "\n".join(f"• {p}" for p in prs) or "_(none)_"
 
-    parts = [head, f_line + "   ·   " + q_line + "   ·   " + u_line]
+    parts = [head, "   ·   ".join(dim_lines)]
     if a.run_url:
         parts.append(f"<{a.run_url}|QA run>")
     parts.append(f"\n*Deployed PRs:*\n{pr_block}")

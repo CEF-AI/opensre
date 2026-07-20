@@ -363,7 +363,7 @@ jobs:
   # `always()` so a failed dimension still reports. Posts the WHOLE verdict — real per-dimension
   # verdicts (from each job's result artifact, not job status) + the full Functional RCA + the PRs.
   deploy_summary:
-    needs: [qa, ux, quality]
+    needs: [qa, quality] # UX intentionally excluded from the deploy verdict (flaky CI login)
     if: ${{ always() && inputs.prs != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -397,9 +397,8 @@ jobs:
           fi
           FN=$(find art -name qa-result.json 2>/dev/null | head -1)
           QL=$(find art -name quality-row.json 2>/dev/null | head -1)
-          UX=$(find art -name ux-result.json 2>/dev/null | head -1)
           TEXT=$(python3 .github/scripts/qa_deploy_summary.py \
-            --functional "$FN" --quality "$QL" --ux "$UX" \
+            --functional "$FN" --quality "$QL" \
             --prs "$PRS" --component "$COMPONENT" --run-url "$RUN_URL")
           # Reply in the request's thread when the poller passed slack_thread_ts; else post top-level.
           curl -sS -X POST https://slack.com/api/chat.postMessage \

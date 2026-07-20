@@ -148,17 +148,26 @@ class CefVaultClient:
         return self._get(path, f"limit={limit}", op="list_jobs")
 
     def list_activities(self, vault_id: str, job_id: str, *, limit: int = 50) -> dict[str, Any]:
-        """List a job's activities (the agent's pipeline steps)."""
-        path = f"/api/v1/vaults/{quote(vault_id, safe='')}/jobs/{quote(job_id, safe='')}/activities"
+        """List a job's activities (the agent's pipeline steps).
+
+        The vault-api renamed this resource ``activities`` -> ``tasks`` (vault-sdk 2.0.0 / the
+        current testnet). We keep the ``activities`` vocabulary in OpenSRE (it is the term the CEF
+        guidance/verdict logic reasons about) but call the ``/tasks`` endpoint. The response is
+        ``{items: [...]}`` in both, so the caller's ``items`` parsing is unchanged.
+        """
+        path = f"/api/v1/vaults/{quote(vault_id, safe='')}/jobs/{quote(job_id, safe='')}/tasks"
         return self._get(path, f"limit={limit}", op="list_activities")
 
     def activity_logs(
         self, vault_id: str, job_id: str, activity_id: str, *, offset: int = 0, limit: int = 100
     ) -> dict[str, Any]:
-        """Fetch an activity's ``ctx.log`` lines (``{logs: [{timestamp, message}]}``)."""
+        """Fetch an activity/task's ``ctx.log`` lines (``{logs: [{timestamp, message}]}``).
+
+        ``activity_id`` is the task id from :meth:`list_activities` (vault-api resource ``tasks``).
+        """
         path = (
             f"/api/v1/vaults/{quote(vault_id, safe='')}"
-            f"/jobs/{quote(job_id, safe='')}/activities/{quote(activity_id, safe='')}/logs"
+            f"/jobs/{quote(job_id, safe='')}/tasks/{quote(activity_id, safe='')}/logs"
         )
         return self._get(path, f"offset={offset}&limit={limit}", op="activity_logs")
 

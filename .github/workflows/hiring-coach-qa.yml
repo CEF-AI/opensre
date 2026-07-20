@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        alias: [hiring-coach-lab2, hiring-coach-qa]
+        alias: [hiring-coach-lab2] # hiring-coach-qa not published under the new AS (34bba26b…)
     concurrency:
       group: hiring-coach-qa-${{ matrix.alias }}
       cancel-in-progress: false # never cancel an in-flight QA run for this alias
@@ -237,7 +237,7 @@ jobs:
     timeout-minutes: 45 # 16 clips × ~1 min (more if cluster whisper is throttled)
     env:
       VAULT_URL: https://vault-api.compute.test.ddcdragon.com
-      CEF_AGENT_SERVICE_PUBKEY: "0x5df19be727730d88cb64539a52f6f263d3353eb7dff6a66a31c8e9de05addcca"
+      CEF_AGENT_SERVICE_PUBKEY: "0x34bba26b1b080fd381b4e84a4e74befd61653697dd0b610bf75ccbc3bd6c8760"
       HIRING_AGENT_ALIAS: hiring-coach-lab2
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       NOTION_READINESS_DB: ${{ secrets.NOTION_READINESS_DB }}

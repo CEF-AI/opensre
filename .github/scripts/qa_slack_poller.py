@@ -26,7 +26,8 @@ import urllib.request
 
 TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 # `or` (not get's default) so an env set to "" by an unset GitHub secret falls back correctly.
-CHANNEL = os.environ.get("SLACK_CHANNEL_ID") or "C0BGKCUBK97"
+# Default: #code-review (C0165G9DWH5). Override via SLACK_QA_CHANNEL_ID secret.
+CHANNEL = os.environ.get("SLACK_CHANNEL_ID") or "C0165G9DWH5"
 BOT_USER = os.environ.get("SLACK_BOT_USER") or "U0BHY8BRGQM"
 WINDOW_MIN = int(os.environ.get("QA_POLL_WINDOW_MIN") or "40")
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
@@ -110,7 +111,7 @@ def main() -> None:
         bullets = "\n".join(f"• {p}" for p in prs)
         post(ts, f"🧪 Running hiring-coach QA on Stage for:\n{bullets}\nResults will post here when it finishes.")
         print(f"claimed request ts={ts} env={env} prs={len(prs)}")
-        emit(go="true", prs=",".join(prs), thread_ts=ts, env=env)
+        emit(go="true", prs=",".join(prs), thread_ts=ts, env=env, channel=CHANNEL)
         return
 
     print("no new QA request found")

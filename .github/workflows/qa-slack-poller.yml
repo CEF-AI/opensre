@@ -31,6 +31,7 @@ jobs:
       go: ${{ steps.scan.outputs.go }}
       prs: ${{ steps.scan.outputs.prs }}
       thread_ts: ${{ steps.scan.outputs.thread_ts }}
+      channel: ${{ steps.scan.outputs.channel }}
       env_name: ${{ steps.scan.outputs.env }}
     steps:
       - name: Checkout (poller script lives on main with this workflow)
@@ -52,4 +53,5 @@ jobs:
       prs: ${{ needs.poll.outputs.prs }}
       component: "Stage deploy"
       slack_thread_ts: ${{ needs.poll.outputs.thread_ts }}
+      slack_channel: ${{ needs.poll.outputs.channel }}
     secrets: inherit

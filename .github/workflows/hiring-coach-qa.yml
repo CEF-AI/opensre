@@ -58,6 +58,9 @@ on:
       slack_thread_ts:
         type: string
         default: ""
+      slack_channel:
+        type: string
+        default: ""
 
 jobs:
   qa:
@@ -367,10 +370,14 @@ jobs:
           PRS: ${{ inputs.prs }}
           COMPONENT: ${{ inputs.component }}
           THREAD_TS: ${{ inputs.slack_thread_ts }}
+          # Post where the request came from (the poller passes the channel); fall back to the
+          # default channel for manual/dispatch runs that don't originate in a Slack thread.
+          SLACK_CHANNEL: ${{ inputs.slack_channel }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_DEFAULT_CHANNEL:-}" ]; then
+          CHAN="${SLACK_CHANNEL:-}"; [ -z "$CHAN" ] && CHAN="${SLACK_DEFAULT_CHANNEL:-}"
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "$CHAN" ]; then
             echo "Slack not configured — skipping summary."; exit 0
           fi
           em() { case "$1" in success) echo "🟢 pass";; failure) echo "🔴 fail";; skipped) echo "⚪ skipped";; *) echo "⚪ $1";; esac; }
@@ -384,6 +391,6 @@ jobs:
           curl -sS -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
-            --data "$(jq -n --arg ch "$SLACK_DEFAULT_CHANNEL" --arg t "$TEXT" --arg tts "$THREAD_TS" \
+            --data "$(jq -n --arg ch "$CHAN" --arg t "$TEXT" --arg tts "$THREAD_TS" \
               '{channel:$ch, text:$t} + (if $tts != "" then {thread_ts:$tts} else {} end)')" \
             | jq -r 'if .ok then "posted deploy-QA summary" else "slack error: " + (.error // "unknown") end'

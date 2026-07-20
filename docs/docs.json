@@ -126,6 +126,7 @@
               "cef-component-logs",
               "cef-qa",
               "cef-qa-report",
+              "cef-qa-deploy",
               "coralogix",
               "datadog",
               "grafana",

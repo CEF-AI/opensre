@@ -7,6 +7,7 @@ import click
 from app.cli.commands.agent import fleet
 from app.cli.commands.cef_qa import cef_qa_command
 from app.cli.commands.config import config_command
+from app.cli.commands.correlate import correlate_command
 from app.cli.commands.cron import cron_command
 from app.cli.commands.debug import debug_command
 from app.cli.commands.doctor import doctor_command
@@ -30,6 +31,7 @@ from app.cli.commands.watchdog import watchdog_command
 _COMMANDS: tuple[click.Command, ...] = (
     investigate_command,
     cef_qa_command,
+    correlate_command,
     onboard,
     config_command,
     remote,

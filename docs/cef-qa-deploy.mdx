@@ -1,0 +1,64 @@
+---
+title: "Deploy-triggered QA & PR correlation"
+description: "Run hiring-coach QA after a Stage deploy and, on failure, correlate it to the deployed PRs."
+---
+
+When code ships to **Stage** (the CEF test cluster), you can run the hiring-coach QA pipeline against
+the deploy and — if QA fails — get an automatic ranking of **which merged PR most likely caused it**.
+
+The human stays in the loop: a deploy posts an ask to Slack, someone supplies the PRs and approves,
+then QA runs. On failure, `opensre correlate` ranks the culprit PR(s).
+
+## Command quick reference
+
+| Command | What it does |
+| --- | --- |
+| `opensre correlate --prs pr-context.json --rca @rca.txt` | Rank which deployed PR most likely caused a QA failure |
+| `opensre correlate … --slack` | Also post the ranked suspects to the configured Slack channel |
+| `opensre correlate … -o correlation.json` | Also write the full result as JSON |
+
+`pr-context.json` is produced by `qa-agent/pr-context.ts` from the PR links a reviewer supplies in
+Slack (title, description, author, changed files).
+
+## Correlate a QA failure to deployed PRs
+
+```bash
+opensre correlate \
+  --rca "@qa-rca.txt" \
+  --prs pr-context.json \
+  --top 3 \
+  --report-url "https://github.com/CEF-AI/opensre/actions/runs/123" \
+  --slack
+```
+
+- `--rca` — the QA failure's root cause (inline text, or `@path` to read from a file). Typically the
+  `root_cause` from the QA run's `--output` result.
+- `--prs` — path to the PR context JSON (or `-` for stdin).
+- `--top` — max suspects to return (default 3).
+- `--slack` — post the summary to Slack via the standard delivery (`SLACK_BOT_TOKEN` /
+  `SLACK_DEFAULT_CHANNEL`, or `SLACK_WEBHOOK_URL`).
+- `--report-url` — a link (e.g. the QA run) included in the Slack summary.
+
+The correlator asks the agent LLM to judge each PR's title, description and changed files against the
+failing area in the RCA. It is **conservative**: if the RCA points at an upstream/infra problem no PR
+could cause (e.g. missing inference nodes), it returns **no suspects** and says so.
+
+### Example output
+
+```
+🧭 Most likely culprit PR(s):
+_ASR model swap is the likely cause_
+🔴 <https://github.com/cere-io/ddc-node/pull/12|cere-io/ddc-node#12> — high · changes the default ASR model to canary-1b-flash, which the RCA shows had no inference nodes
+```
+
+## How it fits the pipeline
+
+```
+deploy to Stage ─▶ Slack asks "which PRs?" ─▶ reviewer supplies PR links + approves
+                 ─▶ QA runs (Functional / Quality / UX)
+                 ─▶ on failure: pr-context.ts → opensre correlate → Slack
+```
+
+The QA pipeline is triggered via a GitHub `repository_dispatch` (`event_type: qa-run`) carrying the
+PR links; the failure path fetches the PR context and runs `opensre correlate`. Cross-repo PR reads
+require a token with read access to the source repos (workflow secret `QA_PR_READ_TOKEN`).

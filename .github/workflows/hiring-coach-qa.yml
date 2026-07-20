@@ -38,6 +38,26 @@ on:
         description: "Deploy-triggered QA: what was deployed (e.g. deploy-inference-gateway) — shown in the Slack summary."
         type: string
         default: ""
+      slack_thread_ts:
+        description: "Slack thread ts to reply the deploy-QA summary into (set by the Slack poller)."
+        type: string
+        default: ""
+  # Reusable entry so the Slack poller (qa-slack-poller.yml) can run QA token-free via `uses:`
+  # (GITHUB_TOKEN can't start a workflow_dispatch, but a workflow_call is not an event dispatch).
+  workflow_call:
+    inputs:
+      force:
+        type: boolean
+        default: true
+      prs:
+        type: string
+        default: ""
+      component:
+        type: string
+        default: ""
+      slack_thread_ts:
+        type: string
+        default: ""
 
 jobs:
   qa:
@@ -332,7 +352,7 @@ jobs:
   # `always()` so a failed dimension still reports; no correlation — just surfaces the PRs.
   deploy_summary:
     needs: [qa, ux, quality]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.prs != '' }}
+    if: ${{ always() && inputs.prs != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -346,6 +366,7 @@ jobs:
           QL: ${{ needs.quality.result }}
           PRS: ${{ inputs.prs }}
           COMPONENT: ${{ inputs.component }}
+          THREAD_TS: ${{ inputs.slack_thread_ts }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -359,8 +380,10 @@ jobs:
           HEAD="🧪 *Deploy QA ${OVERALL}*"; [ -n "${COMPONENT:-}" ] && HEAD="${HEAD} — ${COMPONENT}"
           TEXT=$(printf '%s\nFunctional: %s   ·   Quality: %s   ·   UX: %s\n<%s|QA run>\n\n*Deployed PRs:*\n%s' \
             "$HEAD" "$(em "$FN")" "$(em "$QL")" "$(em "$UX")" "$RUN_URL" "$BULLETS")
+          # Reply in the request's thread when the poller passed slack_thread_ts; else post top-level.
           curl -sS -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
-            --data "$(jq -n --arg ch "$SLACK_DEFAULT_CHANNEL" --arg t "$TEXT" '{channel:$ch, text:$t}')" \
+            --data "$(jq -n --arg ch "$SLACK_DEFAULT_CHANNEL" --arg t "$TEXT" --arg tts "$THREAD_TS" \
+              '{channel:$ch, text:$t} + (if $tts != "" then {thread_ts:$tts} else {} end)')" \
             | jq -r 'if .ok then "posted deploy-QA summary" else "slack error: " + (.error // "unknown") end'

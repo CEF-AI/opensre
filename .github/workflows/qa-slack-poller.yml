@@ -1,0 +1,55 @@
+# QA Slack poller — the deploy-triggered QA front-end.
+#
+# Slack Workflow Builder can't make outbound HTTP calls on our plan, so instead of Slack calling
+# GitHub, GitHub polls Slack: this cron reads #manykind-agents-qa with the rcabot token, finds a
+# "run QA on Stage <PR links>" message it hasn't answered, and runs the QA via workflow_call (so no
+# PAT/App is needed — GITHUB_TOKEN can't start a workflow_dispatch, but a call isn't a dispatch).
+#
+# Trigger a run by posting in the channel, e.g.:
+#   "New PRs deployed, run QA on Stage: https://github.com/org/repo/pull/12 https://github.com/org/repo2/pull/3"
+# (needs the word "qa" + an env word + >=1 PR link; only Stage/testnet is wired today.)
+
+name: QA Slack poller
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every 10 min — deploy-QA requests are picked up within ~10 min
+  workflow_dispatch: {} # manual poke for testing
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-slack-poller
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.scan.outputs.go }}
+      prs: ${{ steps.scan.outputs.prs }}
+      thread_ts: ${{ steps.scan.outputs.thread_ts }}
+      env_name: ${{ steps.scan.outputs.env }}
+    steps:
+      - name: Checkout (poller script lives on main with this workflow)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Scan channel for a "run QA on Stage" request
+        id: scan
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_QA_CHANNEL_ID }}
+        run: python3 .github/scripts/qa_slack_poller.py
+
+  qa:
+    needs: poll
+    if: ${{ needs.poll.outputs.go == 'true' }}
+    uses: ./.github/workflows/hiring-coach-qa.yml
+    with:
+      prs: ${{ needs.poll.outputs.prs }}
+      component: "Stage deploy"
+      slack_thread_ts: ${{ needs.poll.outputs.thread_ts }}
+    secrets: inherit

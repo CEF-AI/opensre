@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@cef-ai/client-sdk": "^0.0.17",
-    "@cef-ai/vault-sdk": "0.5.1",
+    "@cef-ai/vault-sdk": "2.0.0",
     "@polkadot/keyring": "^14.0.3",
     "@polkadot/util": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",

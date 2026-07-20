@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   const needInstall = !current || current.version !== latest.version;
 
   console.log(`[watch] agent   = ${AGENT_ID}`);
-  console.log(`[watch] published= ${latest.version}   cid=${latest.manifestCid}`);
+  console.log(`[watch] published= ${latest.version}   as=${latest.agentServicePubkey}`);
   console.log(`[watch] running  = ${running}   status=${current?.status ?? '-'}`);
   console.log(`[watch] state    = ${NO_STATE ? 'stateless (connection vs published)' : `handled=${lastCid || '(none)'}`}`);
 
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
       console.log('[watch] connection is on the published version — nothing to do.');
       return;
     }
-  } else if (lastCid && lastCid === latest.manifestCid) {
+  } else if (lastCid && lastCid === latest.version) {
     console.log('[watch] already QA’d this published version — nothing to do.');
     return;
   }
@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   if (needInstall) {
     if (current) { console.log(`[watch] disconnecting ${running}…`); await current.disconnect(); }
     console.log(`[watch] connecting ${latest.version}…`);
-    await vault.agents.connect({ manifest: latest, scope: SCOPE, settings: {} });
+    // vault-sdk 2.0.0: connect takes { agentId, scope, settings } (was { manifest, … } in 0.5.x);
+    // it derives the AS pubkey from the agentId prefix and resolves the manifest server-side.
+    await vault.agents.connect({ agentId: AGENT_ID, scope: SCOPE, settings: {} });
     const deadline = Date.now() + 120_000;
     let ok = false;
     while (Date.now() < deadline) {
@@ -122,7 +124,7 @@ async function main(): Promise<void> {
 
   if (!NO_STATE) {
     mkdirSync(dirname(STATE), { recursive: true });
-    writeFileSync(STATE, `${latest.manifestCid}\n`);
+    writeFileSync(STATE, `${latest.version}\n`); // dedup key: published version (2.0.0 card has no manifestCid)
   }
 
   if (NO_EVAL) { console.log('[watch] --no-eval: skipping eval kick.'); return; }

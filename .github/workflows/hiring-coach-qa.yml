@@ -30,6 +30,14 @@ on:
         description: "QA the current version even if no new manifest was published (always produces a report)"
         type: boolean
         default: true
+      prs:
+        description: "Deploy-triggered QA: comma/space-separated merged PR links deployed to Stage. When set, the run posts a deploy-QA summary + these PRs to Slack."
+        type: string
+        default: ""
+      component:
+        description: "Deploy-triggered QA: what was deployed (e.g. deploy-inference-gateway) — shown in the Slack summary."
+        type: string
+        default: ""
 
 jobs:
   qa:
@@ -318,3 +326,41 @@ jobs:
         run: |
           pnpm -C qa-agent exec tsx dashboard-toggle.ts \
             --agent hiring-coach-lab2 --agent hiring-coach-qa || true
+
+  # Deploy-triggered QA summary: only when this run was fired with `prs` (i.e. a human ran the
+  # workflow to QA a Stage deploy). Posts the per-dimension result + the deployed PR links to Slack.
+  # `always()` so a failed dimension still reports; no correlation — just surfaces the PRs.
+  deploy_summary:
+    needs: [qa, ux, quality]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.prs != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+    steps:
+      - name: Post deploy-QA summary + deployed PRs to Slack
+        env:
+          FN: ${{ needs.qa.result }}
+          UX: ${{ needs.ux.result }}
+          QL: ${{ needs.quality.result }}
+          PRS: ${{ inputs.prs }}
+          COMPONENT: ${{ inputs.component }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SLACK_BOT_TOKEN:-}" ] || [ -z "${SLACK_DEFAULT_CHANNEL:-}" ]; then
+            echo "Slack not configured — skipping summary."; exit 0
+          fi
+          em() { case "$1" in success) echo "🟢 pass";; failure) echo "🔴 fail";; skipped) echo "⚪ skipped";; *) echo "⚪ $1";; esac; }
+          OVERALL="🟢 PASS"
+          if [ "$FN" = "failure" ] || [ "$UX" = "failure" ] || [ "$QL" = "failure" ]; then OVERALL="🔴 FAIL"; fi
+          BULLETS=$(printf '%s' "$PRS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^$/d;s/^/• /')
+          HEAD="🧪 *Deploy QA ${OVERALL}*"; [ -n "${COMPONENT:-}" ] && HEAD="${HEAD} — ${COMPONENT}"
+          TEXT=$(printf '%s\nFunctional: %s   ·   Quality: %s   ·   UX: %s\n<%s|QA run>\n\n*Deployed PRs:*\n%s' \
+            "$HEAD" "$(em "$FN")" "$(em "$QL")" "$(em "$UX")" "$RUN_URL" "$BULLETS")
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n --arg ch "$SLACK_DEFAULT_CHANNEL" --arg t "$TEXT" '{channel:$ch, text:$t}')" \
+            | jq -r 'if .ok then "posted deploy-QA summary" else "slack error: " + (.error // "unknown") end'

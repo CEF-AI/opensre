@@ -153,7 +153,11 @@ async function main(): Promise<void> {
     (audioEngagement?.handles &&
       Object.entries(audioEngagement.handles).find(([, h]) => h === 'onAudio')?.[0]) || 'analyze.audio';
   console.log(`[watch] audio trigger event: ${audioEventType}${audioEngagement?.id ? ` (engagement ${audioEngagement.id})` : ''}`);
-  const args = ['exec', 'tsx', join(HERE, 'lab-batch-run.ts'), '--wallet', WALLET, '--password', PASSWORD, '--clips', CLIPS, '--exp', `mp-${latest.version}`];
+  // ASR model: pin to a model with live inference nodes on testnet. `canary-1b-flash` (an agent
+  // default) had no nodes → every run failed at chunk.process; `parakeetTdtV2` is verified deployed
+  // (Bren, 2026-07-20) and long-form capable. Override via CEF_ASR_ALIAS if the deployed set changes.
+  const asrAlias = process.env.CEF_ASR_ALIAS ?? 'parakeetTdtV2';
+  const args = ['exec', 'tsx', join(HERE, 'lab-batch-run.ts'), '--wallet', WALLET, '--password', PASSWORD, '--clips', CLIPS, '--asr-alias', asrAlias, '--exp', `mp-${latest.version}`];
   console.log(`[watch] eval: pnpm ${args.join(' ')}`);
   const childEnv = { ...process.env, CEF_AGENT_SERVICE_PUBKEY: `0x${AS}`, VAULT_URL, HIRING_AGENT_ALIAS: ALIAS, CEF_AGENT_MODELS: agentModels.join(','), CEF_AUDIO_EVENT_TYPE: audioEventType, CEF_MANIFEST_VERSION: latest.version };
   const res = spawnSync('pnpm', args, { cwd: HERE, stdio: 'inherit', env: childEnv });

@@ -41,6 +41,7 @@ const SCOPE = 'default';
 const AS = (process.env.CEF_AGENT_SERVICE_PUBKEY ?? '').replace(/^0x/, '');
 if (!AS) throw new Error('Set CEF_AGENT_SERVICE_PUBKEY');
 const AGENT_ALIAS = process.env.HIRING_AGENT_ALIAS ?? 'hiring-coach-lab2';
+const ASR_ALIAS = process.env.CEF_ASR_ALIAS ?? 'parakeetTdtV2'; // model with live testnet nodes
 const AGENT_ID = `${AS}:${AGENT_ALIAS}`;
 const AUDIO_BASE = process.env.AUDIO_BASE ?? 'https://ddc-s3-gateway.compute.test.ddcdragon.com/hiringcoach-public/scenarios/audio';
 const PER_CLIP_TIMEOUT_MS = Number(process.env.PER_CLIP_TIMEOUT_MS ?? '900000'); // 15 min per clip
@@ -88,12 +89,16 @@ async function processClip(
   console.error(`[${clip.clip_code}] conv=${conv.slice(0, 8)}… chunks=${urls.length}`);
 
   await vault.events.publish(vaultId, SCOPE, [{
-    type: 'analyze.audio.v0843', role: 'user', scope: SCOPE, context: conv, target: AGENT_ID,
+    // v0.8.79 binds onAudio to the unversioned `analyze.audio` (no suffix — confirmed by Bren);
+    // the old `.v0843` suffix matched no handler → no job.
+    type: 'analyze.audio', role: 'user', scope: SCOPE, context: conv, target: AGENT_ID,
     timestamp: new Date().toISOString(),
     payload: {
       conversation_id: conv,
       candidate_id: clip.clip_code,
       audio_ddc_urls: urls,
+      // Pin ASR to a model with live inference nodes (parakeetTdtV2); canary had none → runs failed.
+      profile: { asrAlias: ASR_ALIAS },
     },
   }]);
 
